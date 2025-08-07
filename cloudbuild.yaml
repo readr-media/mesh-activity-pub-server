@@ -1,0 +1,61 @@
+steps:
+  # 步驟 1: 建立 Docker 映像
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA', '.']
+  
+  # 步驟 2: 推送映像到 Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA']
+  
+  # 步驟 3: 設定映像標籤
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['tag', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:latest']
+  
+  # 步驟 4: 推送最新標籤
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:latest']
+  
+  # 步驟 5: 部署到 Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'mesh-activity-pub-server'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA'
+      - '--region'
+      - 'asia-east1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--max-instances'
+      - '10'
+      - '--min-instances'
+      - '0'
+      - '--port'
+      - '8080'
+      - '--set-env-vars'
+      - 'DATABASE_URL=${_DATABASE_URL},GRAPHQL_ENDPOINT=${_GRAPHQL_ENDPOINT},ACTIVITYPUB_DOMAIN=${_ACTIVITYPUB_DOMAIN},SECRET_KEY=${_SECRET_KEY},REDIS_URL=${_REDIS_URL}'
+
+# 設定映像名稱
+images:
+  - 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:latest'
+
+# 選項
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+# 替代變數（需要在 Cloud Build 觸發器中設定）
+substitutions:
+  _DATABASE_URL: 'postgresql+asyncpg://user:password@localhost/readr_mesh'
+  _GRAPHQL_ENDPOINT: 'http://localhost:4000/graphql'
+  _ACTIVITYPUB_DOMAIN: 'activity.readr.tw'
+  _SECRET_KEY: 'your-secret-key-here'
+  _REDIS_URL: 'redis://localhost:6379'

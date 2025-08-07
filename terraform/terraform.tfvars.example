@@ -1,0 +1,23 @@
+# 複製此檔案為 terraform.tfvars 並填入實際值
+
+# GCP 專案 ID
+project_id = "your-gcp-project-id"
+
+# GCP 地區
+region = "asia-east1"
+
+# 資料庫密碼（請使用強密碼）
+db_password = "your-strong-database-password"
+
+# GraphQL 端點
+graphql_endpoint = "https://your-graphql-endpoint.com/graphql"
+
+# ActivityPub 域名
+activitypub_domain = "activity.readr.tw"
+
+# 應用程式密鑰（請使用強密鑰）
+secret_key = "your-strong-secret-key"
+
+# GitHub 設定
+github_owner = "readr-media"
+github_repo  = "mesh-activity-pub-server"
