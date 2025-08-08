@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.core.graphql_client import GraphQLClient
+from app.core.activitypub.federation_discovery import FederationDiscovery, FederationManager
 
 router = APIRouter()
 
@@ -145,117 +146,95 @@ async def get_federation_instance(domain: str):
 @router.post("/instances", response_model=FederationInstanceResponse)
 async def create_federation_instance(
     instance_data: FederationInstanceCreate,
-    db: AsyncSession = Depends(get_db)
 ):
     """手動建立聯邦實例"""
-    # 檢查是否已存在
-    result = await db.execute(
-        select(FederationInstance).where(FederationInstance.domain == instance_data.domain)
-    )
-    existing_instance = result.scalar_one_or_none()
-    
-    if existing_instance:
+    gql = GraphQLClient()
+    exists = await gql.get_federation_instance(instance_data.domain)
+    if exists:
         raise HTTPException(status_code=400, detail="Federation instance already exists")
-    
-    # 建立新實例
-    instance = FederationInstance(
-        domain=instance_data.domain,
-        name=instance_data.name or instance_data.domain,
-        description=instance_data.description,
-        software=instance_data.software,
-        version=instance_data.version,
-        auto_follow=instance_data.auto_follow,
-        auto_announce=instance_data.auto_announce,
-        max_followers=instance_data.max_followers,
-        max_following=instance_data.max_following,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-        last_seen=datetime.utcnow()
-    )
-    
-    db.add(instance)
-    await db.commit()
-    await db.refresh(instance)
-    
+
+    created = await gql.create_federation_instance({
+        "domain": instance_data.domain,
+        "name": instance_data.name or instance_data.domain,
+        "description": instance_data.description,
+        "software": instance_data.software,
+        "version": instance_data.version,
+        "auto_follow": instance_data.auto_follow,
+        "auto_announce": instance_data.auto_announce,
+        "max_followers": instance_data.max_followers,
+        "max_following": instance_data.max_following,
+        "is_active": True,
+    })
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create instance")
+    inst = await gql.get_federation_instance(instance_data.domain)
     return FederationInstanceResponse(
-        id=instance.id,
-        domain=instance.domain,
-        name=instance.name,
-        description=instance.description,
-        software=instance.software,
-        version=instance.version,
-        is_active=instance.is_active,
-        is_approved=instance.is_approved,
-        is_blocked=instance.is_blocked,
-        last_seen=instance.last_seen,
-        last_successful_connection=instance.last_successful_connection,
-        user_count=instance.user_count,
-        post_count=instance.post_count,
-        connection_count=instance.connection_count,
-        error_count=instance.error_count,
-        auto_follow=instance.auto_follow,
-        auto_announce=instance.auto_announce,
-        max_followers=instance.max_followers,
-        max_following=instance.max_following,
-        created_at=instance.created_at,
-        updated_at=instance.updated_at
+        id=int(inst['id']) if isinstance(inst.get('id'), str) and inst['id'].isdigit() else inst.get('id', 0),
+        domain=inst['domain'],
+        name=inst.get('name'),
+        description=inst.get('description'),
+        software=inst.get('software'),
+        version=inst.get('version'),
+        is_active=inst.get('is_active', True),
+        is_approved=inst.get('is_approved', False),
+        is_blocked=inst.get('is_blocked', False),
+        last_seen=inst.get('last_seen'),
+        last_successful_connection=inst.get('last_successful_connection'),
+        user_count=inst.get('user_count', 0),
+        post_count=inst.get('post_count', 0),
+        connection_count=inst.get('connection_count', 0),
+        error_count=inst.get('error_count', 0),
+        auto_follow=inst.get('auto_follow', False),
+        auto_announce=inst.get('auto_announce', True),
+        max_followers=inst.get('max_followers', 0),
+        max_following=inst.get('max_following', 0),
+        created_at=inst.get('created_at'),
+        updated_at=inst.get('updated_at')
     )
 
 @router.put("/instances/{domain}", response_model=FederationInstanceResponse)
 async def update_federation_instance(
     domain: str,
     update_data: FederationInstanceUpdate,
-    db: AsyncSession = Depends(get_db)
 ):
     """更新聯邦實例設定"""
-    result = await db.execute(
-        select(FederationInstance).where(FederationInstance.domain == domain)
-    )
-    instance = result.scalar_one_or_none()
-    
+    gql = GraphQLClient()
+    instance = await gql.get_federation_instance(domain)
     if not instance:
         raise HTTPException(status_code=404, detail="Federation instance not found")
-    
-    # 更新欄位
     update_dict = update_data.dict(exclude_unset=True)
-    for key, value in update_dict.items():
-        setattr(instance, key, value)
-    
-    instance.updated_at = datetime.utcnow()
-    await db.commit()
-    await db.refresh(instance)
-    
+    ok = await gql.update_federation_instance(instance.get('id'), update_dict)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update instance")
+    inst = await gql.get_federation_instance(domain)
     return FederationInstanceResponse(
-        id=instance.id,
-        domain=instance.domain,
-        name=instance.name,
-        description=instance.description,
-        software=instance.software,
-        version=instance.version,
-        is_active=instance.is_active,
-        is_approved=instance.is_approved,
-        is_blocked=instance.is_blocked,
-        last_seen=instance.last_seen,
-        last_successful_connection=instance.last_successful_connection,
-        user_count=instance.user_count,
-        post_count=instance.post_count,
-        connection_count=instance.connection_count,
-        error_count=instance.error_count,
-        auto_follow=instance.auto_follow,
-        auto_announce=instance.auto_announce,
-        max_followers=instance.max_followers,
-        max_following=instance.max_following,
-        created_at=instance.created_at,
-        updated_at=instance.updated_at
+        id=int(inst['id']) if isinstance(inst.get('id'), str) and inst['id'].isdigit() else inst.get('id', 0),
+        domain=inst['domain'],
+        name=inst.get('name'),
+        description=inst.get('description'),
+        software=inst.get('software'),
+        version=inst.get('version'),
+        is_active=inst.get('is_active', True),
+        is_approved=inst.get('is_approved', False),
+        is_blocked=inst.get('is_blocked', False),
+        last_seen=inst.get('last_seen'),
+        last_successful_connection=inst.get('last_successful_connection'),
+        user_count=inst.get('user_count', 0),
+        post_count=inst.get('post_count', 0),
+        connection_count=inst.get('connection_count', 0),
+        error_count=inst.get('error_count', 0),
+        auto_follow=inst.get('auto_follow', False),
+        auto_announce=inst.get('auto_announce', True),
+        max_followers=inst.get('max_followers', 0),
+        max_following=inst.get('max_following', 0),
+        created_at=inst.get('created_at'),
+        updated_at=inst.get('updated_at')
     )
 
 @router.post("/instances/{domain}/approve")
-async def approve_federation_instance(
-    domain: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def approve_federation_instance(domain: str):
     """核准聯邦實例"""
-    manager = FederationManager(db)
+    manager = FederationManager(None)
     success = await manager.approve_instance(domain)
     
     if not success:
@@ -264,12 +243,9 @@ async def approve_federation_instance(
     return {"message": f"Federation instance {domain} approved successfully"}
 
 @router.post("/instances/{domain}/block")
-async def block_federation_instance(
-    domain: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def block_federation_instance(domain: str):
     """封鎖聯邦實例"""
-    manager = FederationManager(db)
+    manager = FederationManager(None)
     success = await manager.block_instance(domain)
     
     if not success:
@@ -278,20 +254,13 @@ async def block_federation_instance(
     return {"message": f"Federation instance {domain} blocked successfully"}
 
 @router.post("/instances/{domain}/test")
-async def test_federation_instance(
-    domain: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def test_federation_instance(domain: str):
     """測試聯邦實例連接"""
-    result = await db.execute(
-        select(FederationInstance).where(FederationInstance.domain == domain)
-    )
-    instance = result.scalar_one_or_none()
-    
+    gql = GraphQLClient()
+    instance = await gql.get_federation_instance(domain)
     if not instance:
         raise HTTPException(status_code=404, detail="Federation instance not found")
-    
-    discovery = FederationDiscovery(db)
+    discovery = FederationDiscovery(None)
     success = await discovery.test_connection(instance)
     
     return {
@@ -301,12 +270,9 @@ async def test_federation_instance(
     }
 
 @router.post("/discover", response_model=DiscoveryResponse)
-async def discover_federation_instance(
-    request: DiscoveryRequest,
-    db: AsyncSession = Depends(get_db)
-):
+async def discover_federation_instance(request: DiscoveryRequest):
     """發現新的聯邦實例"""
-    discovery = FederationDiscovery(db)
+    discovery = FederationDiscovery(None)
     
     try:
         instance_data = await discovery.discover_instance(request.domain)
@@ -340,12 +306,9 @@ async def discover_federation_instance(
         )
 
 @router.post("/discover/auto")
-async def auto_discover_instances(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
-):
+async def auto_discover_instances(background_tasks: BackgroundTasks):
     """自動發現新的聯邦實例"""
-    manager = FederationManager(db)
+    manager = FederationManager(None)
     
     # 在背景執行自動發現
     background_tasks.add_task(manager.auto_discover_instances)
@@ -353,22 +316,17 @@ async def auto_discover_instances(
     return {"message": "Auto-discovery started in background"}
 
 @router.get("/stats", response_model=FederationStatsResponse)
-async def get_federation_stats(
-    db: AsyncSession = Depends(get_db)
-):
+async def get_federation_stats():
     """取得聯邦統計資訊"""
-    manager = FederationManager(db)
+    manager = FederationManager(None)
     stats = await manager.get_federation_stats()
     
     return FederationStatsResponse(**stats)
 
 @router.post("/test-all")
-async def test_all_connections(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
-):
+async def test_all_connections(background_tasks: BackgroundTasks):
     """測試所有聯邦實例的連接"""
-    manager = FederationManager(db)
+    manager = FederationManager(None)
     
     # 在背景執行連接測試
     background_tasks.add_task(manager.test_all_connections)
@@ -376,31 +334,21 @@ async def test_all_connections(
     return {"message": "Connection testing started in background"}
 
 @router.delete("/instances/{domain}")
-async def delete_federation_instance(
-    domain: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def delete_federation_instance(domain: str):
     """刪除聯邦實例"""
-    result = await db.execute(
-        select(FederationInstance).where(FederationInstance.domain == domain)
-    )
-    instance = result.scalar_one_or_none()
-    
-    if not instance:
+    gql = GraphQLClient()
+    inst = await gql.get_federation_instance(domain)
+    if not inst:
         raise HTTPException(status_code=404, detail="Federation instance not found")
-    
-    await db.delete(instance)
-    await db.commit()
-    
+    ok = await gql.delete_federation_instance(inst.get('id'))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete instance")
     return {"message": f"Federation instance {domain} deleted successfully"}
 
 @router.post("/cleanup")
-async def cleanup_old_instances(
-    days: int = 30,
-    db: AsyncSession = Depends(get_db)
-):
+async def cleanup_old_instances(days: int = 30):
     """清理舊的無效實例"""
-    discovery = FederationDiscovery(db)
+    discovery = FederationDiscovery(None)
     count = await discovery.cleanup_old_instances(days)
     
     return {"message": f"Cleaned up {count} old instances"}
