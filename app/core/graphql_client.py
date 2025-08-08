@@ -384,22 +384,62 @@ class GraphQLClient:
             return False
     
     async def create_activity(self, activity_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """建立活動記錄"""
+        """在 Keystone 的 Activity list 建立記錄"""
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": activity_data.get("activity_id", "mock-activity-id")}
         mutation = """
-        mutation CreateActivity($input: ActivityInput!) {
-            createActivity(input: $input) {
-                id
-                type
-                actorId
-                objectId
-                createdAt
-            }
+        mutation CreateActivity($data: ActivityCreateInput!) {
+          createActivity(data: $data) { id }
         }
         """
-        
         try:
-            result = await self.mutation(mutation, {"input": activity_data})
+            result = await self.mutation(mutation, {"data": activity_data})
             return result.get("data", {}).get("createActivity")
         except Exception as e:
             print(f"Error creating activity: {e}")
+            return None
+
+    async def create_inbox_item(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": data.get("activity_id", "mock-inbox-id")}
+        mutation = """
+        mutation CreateInbox($data: InboxItemCreateInput!) {
+          createInboxItem(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createInboxItem")
+        except Exception as e:
+            print(f"Error creating inbox item: {e}")
+            return None
+
+    async def update_inbox_item_processed(self, id: str, is_processed: bool) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": id, "is_processed": is_processed}
+        mutation = """
+        mutation UpdateInbox($id: ID!, $data: InboxItemUpdateInput!) {
+          updateInboxItem(where: { id: $id }, data: $data) { id is_processed }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": id, "data": {"is_processed": is_processed}})
+            return result.get("data", {}).get("updateInboxItem")
+        except Exception as e:
+            print(f"Error updating inbox item: {e}")
+            return None
+
+    async def create_outbox_item(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": data.get("activity_id", "mock-outbox-id")}
+        mutation = """
+        mutation CreateOutbox($data: OutboxItemCreateInput!) {
+          createOutboxItem(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createOutboxItem")
+        except Exception as e:
+            print(f"Error creating outbox item: {e}")
             return None
