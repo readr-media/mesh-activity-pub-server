@@ -4,7 +4,7 @@
 
 import httpx
 import asyncio
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from datetime import datetime, timedelta
@@ -18,7 +18,7 @@ from app.core.config import settings
 class FederationDiscovery:
     """聯邦網站發現器"""
     
-    def __init__(self, db: AsyncSession | None):
+    def __init__(self, db: Optional[AsyncSession]):
         self.db = db
         self.gql = GraphQLClient()
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -180,7 +180,7 @@ class FederationDiscovery:
             created = await self.gql.create_federation_instance(data)
             return created or {}
     
-    async def test_connection(self, instance: FederationInstance | Dict[str, Any]) -> bool:
+    async def test_connection(self, instance: Union[FederationInstance, Dict[str, Any]]) -> bool:
         """測試與聯邦實例的連接"""
         try:
             # 測試 NodeInfo 端點
@@ -279,7 +279,7 @@ class FederationDiscovery:
 class FederationManager:
     """聯邦管理器"""
     
-    def __init__(self, db: AsyncSession | None):
+    def __init__(self, db: Optional[AsyncSession]):
         self.db = db
         self.discovery = FederationDiscovery(db)
     
@@ -318,7 +318,7 @@ class FederationManager:
         
         return new_instances
     
-    async def _get_public_timeline(self, instance: FederationInstance | Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_public_timeline(self, instance: Union[FederationInstance, Dict[str, Any]]) -> List[Dict[str, Any]]:
         """取得實例的公開時間軸"""
         try:
             response = await self.discovery.client.get(

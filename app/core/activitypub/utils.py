@@ -23,9 +23,9 @@ def generate_note_id(username: str) -> str:
     unique_id = str(uuid.uuid4())[:8]
     return f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/notes/{username}/{timestamp}-{unique_id}"
 
-def create_actor_object(actor: Actor) -> Dict[str, Any]:
-    """建立 Actor 物件"""
-    actor_id = generate_actor_id(actor.username)
+def create_actor_object(actor: Dict[str, Any]) -> Dict[str, Any]:
+    """建立 Actor 物件（支援字典格式）"""
+    actor_id = generate_actor_id(actor["username"])
     
     return {
         "@context": [
@@ -34,12 +34,12 @@ def create_actor_object(actor: Actor) -> Dict[str, Any]:
         ],
         "id": actor_id,
         "type": "Person",
-        "preferredUsername": actor.username,
-        "name": actor.display_name or actor.username,
-        "summary": actor.summary or "",
+        "preferredUsername": actor["username"],
+        "name": actor.get("display_name") or actor["username"],
+        "summary": actor.get("summary") or "",
         "icon": {
             "type": "Image",
-            "url": actor.icon_url or f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/default-avatar.png"
+            "url": actor.get("icon_url") or f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/default-avatar.png"
         },
         "inbox": f"{actor_id}/inbox",
         "outbox": f"{actor_id}/outbox",
@@ -48,7 +48,7 @@ def create_actor_object(actor: Actor) -> Dict[str, Any]:
         "publicKey": {
             "id": f"{actor_id}#main-key",
             "owner": actor_id,
-            "publicKeyPem": actor.public_key_pem
+            "publicKeyPem": actor.get("public_key_pem") or ""
         }
     }
 
