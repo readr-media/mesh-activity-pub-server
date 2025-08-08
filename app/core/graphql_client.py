@@ -94,30 +94,83 @@ class GraphQLClient:
             return None
     
     async def create_pick(self, input_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """依 Keystone 6 的 createPick(data: PickCreateInput!) 格式組裝資料
+
+        期望的 input_data 形狀（呼叫端傳入簡化鍵）：
+        {
+          "storyId": ID,
+          "memberId": ID,
+          "objective": str | None,
+          "kind": str,
+          "paywall": bool,
+          "pickedDate": ISO8601 | None
+        }
+        轉換為 Keystone 的 data：
+        {
+          story: { connect: { id } },
+          member: { connect: { id } },
+          objective, kind, paywall, picked_date
+        }
+        """
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": "mock-pick-id"}
+        data: Dict[str, Any] = {}
+        if input_data.get("storyId"):
+            data["story"] = {"connect": {"id": input_data["storyId"]}}
+        if input_data.get("memberId"):
+            data["member"] = {"connect": {"id": input_data["memberId"]}}
+        if input_data.get("objective") is not None:
+            data["objective"] = input_data["objective"]
+        if input_data.get("kind") is not None:
+            data["kind"] = input_data["kind"]
+        if input_data.get("paywall") is not None:
+            data["paywall"] = input_data["paywall"]
+        if input_data.get("pickedDate") is not None:
+            data["picked_date"] = input_data["pickedDate"]
+
         mutation = """
         mutation CreatePick($data: PickCreateInput!) {
             createPick(data: $data) { id }
         }
         """
         try:
-            result = await self.mutation(mutation, {"data": input_data})
+            result = await self.mutation(mutation, {"data": data})
             return result.get("data", {}).get("createPick")
         except Exception as e:
             print(f"Error creating pick: {e}")
             return None
     
     async def create_comment(self, input_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """將簡化鍵轉為 Keystone 關聯輸入
+
+        期望 input_data：
+        { content, publishedDate?, memberId, pickId?, parentId?, storyId? }
+        轉為：
+        { content, published_date?, member: {connect:{id}}, pick/story/parent: {connect:{id}} }
+        """
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": "mock-comment-id"}
+        data: Dict[str, Any] = {}
+        if input_data.get("content") is not None:
+            data["content"] = input_data["content"]
+        if input_data.get("publishedDate") is not None:
+            data["published_date"] = input_data["publishedDate"]
+        if input_data.get("memberId"):
+            data["member"] = {"connect": {"id": input_data["memberId"]}}
+        if input_data.get("pickId"):
+            data["pick"] = {"connect": {"id": input_data["pickId"]}}
+        if input_data.get("parentId"):
+            data["parent"] = {"connect": {"id": input_data["parentId"]}}
+        if input_data.get("storyId"):
+            data["story"] = {"connect": {"id": input_data["storyId"]}}
+
         mutation = """
         mutation CreateComment($data: CommentCreateInput!) {
             createComment(data: $data) { id }
         }
         """
         try:
-            result = await self.mutation(mutation, {"data": input_data})
+            result = await self.mutation(mutation, {"data": data})
             return result.get("data", {}).get("createComment")
         except Exception as e:
             print(f"Error creating comment: {e}")
@@ -126,14 +179,18 @@ class GraphQLClient:
     async def like_pick(self, pick_id: str, member_id: str) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": pick_id, "likeCount": 1}
+        # 需在 Keystone 的 Pick 加上 like: relationship({ ref: 'Member.pick_like', many: true })
         mutation = """
-        mutation LikePick($pickId: ID!, $memberId: ID!) {
-            likePick(pickId: $pickId, memberId: $memberId) { id likeCount }
+        mutation LikePick($id: ID!, $memberId: ID!) {
+          updatePick(where: { id: $id }, data: { like: { connect: { id: $memberId } } }) { id }
         }
         """
         try:
-            result = await self.mutation(mutation, {"pickId": pick_id, "memberId": member_id})
-            return result.get("data", {}).get("likePick")
+            result = await self.mutation(mutation, {"id": pick_id, "memberId": member_id})
+            data = result.get("data", {}).get("updatePick")
+            if data:
+                return {"id": data.get("id"), "likeCount": 0}
+            return None
         except Exception as e:
             print(f"Error liking pick: {e}")
             return None
@@ -142,13 +199,18 @@ class GraphQLClient:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": comment_id, "likeCount": 1}
         mutation = """
-        mutation LikeComment($commentId: ID!, $memberId: ID!) {
-            likeComment(commentId: $commentId, memberId: $memberId) { id likeCount }
+        mutation LikeComment($id: ID!, $memberId: ID!) {
+            updateComment(where: { id: $id }, data: { like: { connect: { id: $memberId } } }) {
+                id
+            }
         }
         """
         try:
-            result = await self.mutation(mutation, {"commentId": comment_id, "memberId": member_id})
-            return result.get("data", {}).get("likeComment")
+            result = await self.mutation(mutation, {"id": comment_id, "memberId": member_id})
+            data = result.get("data", {}).get("updateComment")
+            if data:
+                return {"id": data.get("id"), "likeCount": 0}
+            return None
         except Exception as e:
             print(f"Error liking comment: {e}")
             return None
@@ -158,15 +220,129 @@ class GraphQLClient:
             return {"id": f"{follower_id}->{following_id}"}
         mutation = """
         mutation FollowMember($followerId: ID!, $followingId: ID!) {
-            followMember(followerId: $followerId, followingId: $followingId) { id }
+            updateMember(
+              where: { id: $followerId },
+              data: { following: { connect: { id: $followingId } } }
+            ) { id }
         }
         """
         try:
             result = await self.mutation(mutation, {"followerId": follower_id, "followingId": following_id})
-            return result.get("data", {}).get("followMember")
+            return result.get("data", {}).get("updateMember")
         except Exception as e:
             print(f"Error following member: {e}")
             return None
+
+    async def get_member_picks(self, member_id: str, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return []
+        query = """
+        query MemberPicks($memberId: ID!, $take: Int!, $skip: Int!) {
+          Picks(
+            where: { member: { id: { equals: $memberId } } },
+            take: $take,
+            skip: $skip,
+            orderBy: { picked_date: desc }
+          ) {
+            id
+            objective
+            kind
+            picked_date
+            story { id title url }
+          }
+        }
+        """
+        try:
+            result = await self.query(query, {"memberId": member_id, "take": limit, "skip": offset})
+            return result.get("data", {}).get("Picks", [])
+        except Exception as e:
+            print(f"Error fetching member picks: {e}")
+            return []
+
+    async def get_pick_comments(self, pick_id: str, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return []
+        query = """
+        query PickComments($pickId: ID!, $take: Int!, $skip: Int!) {
+          Comments(
+            where: { pick: { id: { equals: $pickId } } },
+            take: $take,
+            skip: $skip,
+            orderBy: { published_date: desc }
+          ) {
+            id
+            content
+            published_date
+            member { id }
+            parent { id content }
+          }
+        }
+        """
+        try:
+            result = await self.query(query, {"pickId": pick_id, "take": limit, "skip": offset})
+            return result.get("data", {}).get("Comments", [])
+        except Exception as e:
+            print(f"Error fetching pick comments: {e}")
+            return []
+
+    async def update_member_activitypub_settings(
+        self,
+        member_id: str,
+        activitypub_enabled: bool,
+        activitypub_auto_follow: Optional[bool] = None,
+        activitypub_public_posts: Optional[bool] = None,
+        activitypub_federation_enabled: Optional[bool] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {
+                "id": member_id,
+                "activitypub_enabled": activitypub_enabled,
+                "activitypub_auto_follow": activitypub_auto_follow if activitypub_auto_follow is not None else True,
+                "activitypub_public_posts": activitypub_public_posts if activitypub_public_posts is not None else True,
+                "activitypub_federation_enabled": activitypub_federation_enabled if activitypub_federation_enabled is not None else True,
+            }
+        fields: Dict[str, Any] = {"activitypub_enabled": activitypub_enabled}
+        if activitypub_auto_follow is not None:
+            fields["activitypub_auto_follow"] = activitypub_auto_follow
+        if activitypub_public_posts is not None:
+            fields["activitypub_public_posts"] = activitypub_public_posts
+        if activitypub_federation_enabled is not None:
+            fields["activitypub_federation_enabled"] = activitypub_federation_enabled
+        mutation = """
+        mutation UpdateMemberAP($id: ID!, $data: MemberUpdateInput!) {
+          updateMember(where: { id: $id }, data: $data) {
+            id
+            activitypub_enabled
+            activitypub_auto_follow
+            activitypub_public_posts
+            activitypub_federation_enabled
+          }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": member_id, "data": fields})
+            return result.get("data", {}).get("updateMember")
+        except Exception as e:
+            print(f"Error updating member settings: {e}")
+            return None
+
+    async def add_comment_to_pick(self, pick_id: str, comment_id: str) -> bool:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return True
+        # Keystone pick.ts: pick_comment: relationship({ ref: 'Comment', many: true })
+        mutation = """
+        mutation AddCommentToPick($pickId: ID!, $commentId: ID!) {
+          updatePick(where: { id: $pickId }, data: { pick_comment: { connect: { id: $commentId } } }) {
+            id
+          }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"pickId": pick_id, "commentId": comment_id})
+            return bool(result.get("data", {}).get("updatePick"))
+        except Exception as e:
+            print(f"Error linking comment to pick: {e}")
+            return False
     
     async def create_activity(self, activity_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """建立活動記錄"""
