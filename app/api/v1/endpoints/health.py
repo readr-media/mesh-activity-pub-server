@@ -1,22 +1,16 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from app.core.database import get_db
+from fastapi import APIRouter
+from app.core.graphql_client import GraphQLClient
 
 router = APIRouter()
 
 @router.get("/")
-async def health_check(db: AsyncSession = Depends(get_db)):
+async def health_check():
     """Health check endpoint"""
+    gql_status = "healthy"
     try:
-        # Test database connection
-        await db.execute(text("SELECT 1"))
-        db_status = "healthy"
+        gql = GraphQLClient()
+        await gql.query("query __Ping { __typename }")
     except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
-    
-    return {
-        "status": "ok",
-        "database": db_status,
-        "service": "READr Mesh ActivityPub Server"
-    }
+        gql_status = f"unhealthy: {str(e)}"
+
+    return {"status": "ok", "graphql": gql_status, "service": "READr Mesh ActivityPub Server"}
