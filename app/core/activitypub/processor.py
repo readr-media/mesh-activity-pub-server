@@ -144,20 +144,8 @@ async def process_mesh_pick(activity_data: Dict[str, Any], db: AsyncSession):
     # Create or update Story
     story = await get_or_create_story(pick_info["story"], db)
     
-    # Create Pick in local database
-    pick = Pick(
-        pick_id=activity_data.get("object", {}).get("id"),
-        actor_id=actor.id,
-        story_id=story.id,
-        kind=pick_info["pick"]["kind"],
-        objective=pick_info["pick"]["objective"],
-        picked_date=datetime.fromisoformat(pick_info["pick"]["picked_date"].replace("Z", "+00:00")) if pick_info["pick"].get("picked_date") else datetime.utcnow(),
-        is_active=True,
-        state="active"
-    )
-    
-    db.add(pick)
-    await db.commit()
+    # 改為直接同步到 Mesh（GraphQL），本地不再落地 Pick
+    await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
     
     # Sync to Mesh system
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
@@ -174,28 +162,8 @@ async def process_mesh_comment(activity_data: Dict[str, Any], db: AsyncSession):
     if not actor:
         return
     
-    # Create Comment in local database
-    comment = Comment(
-        comment_id=activity_data.get("object", {}).get("id"),
-        actor_id=actor.id,
-        content=comment_info["content"],
-        published_date=datetime.fromisoformat(comment_info["published_date"].replace("Z", "+00:00")) if comment_info.get("published_date") else datetime.utcnow(),
-        is_active=True,
-        state="published"
-    )
-    
-    # If it's a comment on a specific Pick
-    if comment_info["in_reply_to"] and "picks" in comment_info["in_reply_to"]:
-        pick_id = comment_info["in_reply_to"].split("/")[-1]
-        result = await db.execute(
-            select(Pick).where(Pick.pick_id == pick_id)
-        )
-        pick = result.scalar_one_or_none()
-        if pick:
-            comment.pick_id = pick.id
-    
-    db.add(comment)
-    await db.commit()
+    # 改為直接同步到 Mesh（GraphQL），本地不再落地 Comment
+    await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
     
     # Sync to Mesh system
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
@@ -204,42 +172,15 @@ async def process_note(activity_data: Dict[str, Any], db: AsyncSession):
     """處理一般 Note 活動"""
     object_data = activity_data.get("object", {})
     
-    # 建立 Note
-    note = Note(
-        note_id=object_data.get("id"),
-        actor_id=extract_actor_id_from_activity(activity_data),
-        content=object_data.get("content", ""),
-        content_type=object_data.get("contentType", "text/html"),
-        summary=object_data.get("summary"),
-        in_reply_to=object_data.get("inReplyTo"),
-        to=object_data.get("to"),
-        cc=object_data.get("cc"),
-        attachment=object_data.get("attachment"),
-        tags=object_data.get("tag"),
-        is_public=is_public_activity(activity_data)
-    )
-    
-    db.add(note)
-    await db.commit()
+    # Note 不再落地 DB，改為依內容轉換至 Mesh（Pick/Comment）
+    await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
 async def process_article(activity_data: Dict[str, Any], db: AsyncSession):
     """處理 Article 活動"""
     object_data = activity_data.get("object", {})
     
-    # 建立 Story
-    story = Story(
-        story_id=object_data.get("id"),
-        title=object_data.get("name", ""),
-        content=object_data.get("content", ""),
-        url=object_data.get("url", ""),
-        image_url=object_data.get("image", ""),
-        published_date=datetime.fromisoformat(object_data.get("published").replace("Z", "+00:00")) if object_data.get("published") else None,
-        is_active=True,
-        state="published"
-    )
-    
-    db.add(story)
-    await db.commit()
+    # Story 不再落地 DB，由 Mesh 端維護
+    await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
 async def process_like(activity_data: Dict[str, Any], db: AsyncSession):
     """Process Like activity"""

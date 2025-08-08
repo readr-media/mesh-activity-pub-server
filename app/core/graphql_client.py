@@ -131,6 +131,37 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error fetching story: {e}")
             return None
+
+    async def get_story_by_url(self, url: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": "mock-story-id", "url": url}
+        query = """
+        query GetStoryByUrl($url: String!) {
+          Stories(where: { url: { equals: $url } }, take: 1) { id title url image published_date state is_active }
+        }
+        """
+        try:
+            result = await self.query(query, {"url": url})
+            items = result.get("data", {}).get("Stories", [])
+            return items[0] if items else None
+        except Exception as e:
+            print(f"Error fetching story by url: {e}")
+            return None
+
+    async def create_story(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": "mock-story-id"}
+        mutation = """
+        mutation CreateStory($data: StoryCreateInput!) {
+          createStory(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createStory")
+        except Exception as e:
+            print(f"Error creating story: {e}")
+            return None
     
     async def create_pick(self, input_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """依 Keystone 6 的 createPick(data: PickCreateInput!) 格式組裝資料
@@ -499,6 +530,22 @@ class GraphQLClient:
             return result.get("data", {}).get("createActivity")
         except Exception as e:
             print(f"Error creating activity: {e}")
+            return None
+
+    async def get_activity_by_activity_id(self, activity_id: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return None
+        query = """
+        query GetActivity($id: String!) {
+          Activities(where: { activity_id: { equals: $id } }, take: 1) { id activity_id }
+        }
+        """
+        try:
+            result = await self.query(query, {"id": activity_id})
+            items = result.get("data", {}).get("Activities", [])
+            return items[0] if items else None
+        except Exception as e:
+            print(f"Error fetching activity by activity_id: {e}")
             return None
 
     async def create_inbox_item(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
