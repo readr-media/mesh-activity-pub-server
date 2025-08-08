@@ -324,6 +324,81 @@ class GraphQLClient:
             print(f"Error fetching pick comments: {e}")
             return []
 
+    # Federation GraphQL APIs
+    async def list_federation_instances(self, limit: int = 100, offset: int = 0, approved_only: bool = False, active_only: bool = True) -> List[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return []
+        where: Dict[str, Any] = {}
+        if approved_only:
+            where.setdefault("is_approved", {"equals": True})
+        if active_only:
+            where.setdefault("is_active", {"equals": True})
+        query = """
+        query ListInstances($take: Int!, $skip: Int!, $where: FederationInstanceWhereInput) {
+          FederationInstances(take: $take, skip: $skip, where: $where, orderBy: { last_seen: desc }) {
+            id domain name description software version is_active is_approved is_blocked
+            last_seen last_successful_connection user_count post_count connection_count error_count
+            auto_follow auto_announce max_followers max_following
+          }
+        }
+        """
+        try:
+            result = await self.query(query, {"take": limit, "skip": offset, "where": where or None})
+            return result.get("data", {}).get("FederationInstances", [])
+        except Exception as e:
+            print(f"Error listing instances: {e}")
+            return []
+
+    async def get_federation_instance(self, domain: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return None
+        query = """
+        query GetInstance($domain: String!) {
+          FederationInstances(where: { domain: { equals: $domain } }, take: 1) {
+            id domain name description software version is_active is_approved is_blocked
+            last_seen last_successful_connection user_count post_count connection_count error_count
+            auto_follow auto_announce max_followers max_following
+          }
+        }
+        """
+        try:
+            result = await self.query(query, {"domain": domain})
+            items = result.get("data", {}).get("FederationInstances", [])
+            return items[0] if items else None
+        except Exception as e:
+            print(f"Error getting instance: {e}")
+            return None
+
+    async def create_federation_instance(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": "mock-instance-id"}
+        mutation = """
+        mutation CreateInstance($data: FederationInstanceCreateInput!) {
+          createFederationInstance(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createFederationInstance")
+        except Exception as e:
+            print(f"Error creating instance: {e}")
+            return None
+
+    async def update_federation_instance(self, id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": id}
+        mutation = """
+        mutation UpdateInstance($id: ID!, $data: FederationInstanceUpdateInput!) {
+          updateFederationInstance(where: { id: $id }, data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": id, "data": data})
+            return result.get("data", {}).get("updateFederationInstance")
+        except Exception as e:
+            print(f"Error updating instance: {e}")
+            return None
+
     async def update_member_activitypub_settings(
         self,
         member_id: str,

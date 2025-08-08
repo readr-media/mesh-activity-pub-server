@@ -2,16 +2,12 @@
 聯邦網站管理 API 端點
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
 
-from app.core.database import get_db
-from app.models.activitypub import FederationInstance, FederationConnection, FederationActivity
-from app.core.activitypub.federation_discovery import FederationDiscovery, FederationManager
+from app.core.graphql_client import GraphQLClient
 
 router = APIRouter()
 
@@ -83,85 +79,67 @@ async def get_federation_instances(
     offset: int = 0,
     approved_only: bool = False,
     active_only: bool = True,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得聯邦實例列表"""
-    query = select(FederationInstance)
-    
-    if approved_only:
-        query = query.where(FederationInstance.is_approved == True)
-    
-    if active_only:
-        query = query.where(FederationInstance.is_active == True)
-    
-    query = query.order_by(FederationInstance.last_seen.desc()).offset(offset).limit(limit)
-    
-    result = await db.execute(query)
-    instances = result.scalars().all()
+    gql = GraphQLClient()
+    instances = await gql.list_federation_instances(limit, offset, approved_only, active_only)
     
     return [
         FederationInstanceResponse(
-            id=instance.id,
-            domain=instance.domain,
-            name=instance.name,
-            description=instance.description,
-            software=instance.software,
-            version=instance.version,
-            is_active=instance.is_active,
-            is_approved=instance.is_approved,
-            is_blocked=instance.is_blocked,
-            last_seen=instance.last_seen,
-            last_successful_connection=instance.last_successful_connection,
-            user_count=instance.user_count,
-            post_count=instance.post_count,
-            connection_count=instance.connection_count,
-            error_count=instance.error_count,
-            auto_follow=instance.auto_follow,
-            auto_announce=instance.auto_announce,
-            max_followers=instance.max_followers,
-            max_following=instance.max_following,
-            created_at=instance.created_at,
-            updated_at=instance.updated_at
+            id=int(instance['id']) if isinstance(instance.get('id'), str) and instance['id'].isdigit() else instance.get('id', 0),
+            domain=instance['domain'],
+            name=instance.get('name'),
+            description=instance.get('description'),
+            software=instance.get('software'),
+            version=instance.get('version'),
+            is_active=instance.get('is_active', True),
+            is_approved=instance.get('is_approved', False),
+            is_blocked=instance.get('is_blocked', False),
+            last_seen=instance.get('last_seen'),
+            last_successful_connection=instance.get('last_successful_connection'),
+            user_count=instance.get('user_count', 0),
+            post_count=instance.get('post_count', 0),
+            connection_count=instance.get('connection_count', 0),
+            error_count=instance.get('error_count', 0),
+            auto_follow=instance.get('auto_follow', False),
+            auto_announce=instance.get('auto_announce', True),
+            max_followers=instance.get('max_followers', 0),
+            max_following=instance.get('max_following', 0),
+            created_at=instance.get('created_at'),
+            updated_at=instance.get('updated_at')
         )
         for instance in instances
     ]
 
 @router.get("/instances/{domain}", response_model=FederationInstanceResponse)
-async def get_federation_instance(
-    domain: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_federation_instance(domain: str):
     """取得特定聯邦實例資訊"""
-    result = await db.execute(
-        select(FederationInstance).where(FederationInstance.domain == domain)
-    )
-    instance = result.scalar_one_or_none()
-    
+    gql = GraphQLClient()
+    instance = await gql.get_federation_instance(domain)
     if not instance:
         raise HTTPException(status_code=404, detail="Federation instance not found")
-    
     return FederationInstanceResponse(
-        id=instance.id,
-        domain=instance.domain,
-        name=instance.name,
-        description=instance.description,
-        software=instance.software,
-        version=instance.version,
-        is_active=instance.is_active,
-        is_approved=instance.is_approved,
-        is_blocked=instance.is_blocked,
-        last_seen=instance.last_seen,
-        last_successful_connection=instance.last_successful_connection,
-        user_count=instance.user_count,
-        post_count=instance.post_count,
-        connection_count=instance.connection_count,
-        error_count=instance.error_count,
-        auto_follow=instance.auto_follow,
-        auto_announce=instance.auto_announce,
-        max_followers=instance.max_followers,
-        max_following=instance.max_following,
-        created_at=instance.created_at,
-        updated_at=instance.updated_at
+        id=int(instance['id']) if isinstance(instance.get('id'), str) and instance['id'].isdigit() else instance.get('id', 0),
+        domain=instance['domain'],
+        name=instance.get('name'),
+        description=instance.get('description'),
+        software=instance.get('software'),
+        version=instance.get('version'),
+        is_active=instance.get('is_active', True),
+        is_approved=instance.get('is_approved', False),
+        is_blocked=instance.get('is_blocked', False),
+        last_seen=instance.get('last_seen'),
+        last_successful_connection=instance.get('last_successful_connection'),
+        user_count=instance.get('user_count', 0),
+        post_count=instance.get('post_count', 0),
+        connection_count=instance.get('connection_count', 0),
+        error_count=instance.get('error_count', 0),
+        auto_follow=instance.get('auto_follow', False),
+        auto_announce=instance.get('auto_announce', True),
+        max_followers=instance.get('max_followers', 0),
+        max_following=instance.get('max_following', 0),
+        created_at=instance.get('created_at'),
+        updated_at=instance.get('updated_at')
     )
 
 @router.post("/instances", response_model=FederationInstanceResponse)
