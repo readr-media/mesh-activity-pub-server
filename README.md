@@ -61,7 +61,7 @@ Mesh 的 Pick + Comment 功能類似使用者在 Facebook 上分享連結並加�
 - **資料庫**: PostgreSQL (Cloud SQL)
 - **快取**: Redis (Cloud Memorystore)
 - **部署**: Google Cloud Run
-- **CI/CD**: Cloud Build + GitHub Actions
+ - **CI/CD**: Cloud Build
 - **容器化**: Docker
 
 ## 快速開始
@@ -138,22 +138,7 @@ terraform plan
 terraform apply
 ```
 
-#### 方法三：使用 GitHub Actions
-
-1. **設定 GitHub Secrets**
-在 GitHub 儲存庫設定中添加以下 secrets：
-- `GCP_PROJECT_ID`: GCP 專案 ID
-- `GCP_SA_KEY`: GCP 服務帳戶金鑰 (JSON)
-- `DATABASE_URL`: 資料庫連接字串
-- `GRAPHQL_ENDPOINT`: GraphQL 端點
-- `ACTIVITYPUB_DOMAIN`: ActivityPub 域名
-- `SECRET_KEY`: 應用程式密鑰
-- `REDIS_URL`: Redis 連接字串
-
-2. **推送程式碼**
-```bash
-git push origin main
-```
+ 
 
 ## API 端點
 

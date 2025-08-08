@@ -127,17 +127,7 @@ terraform plan
 terraform apply
 ```
 
-#### 3. 設定 GitHub Actions
-
-在 GitHub 儲存庫設定中添加 Secrets：
-
-- `GCP_PROJECT_ID`: GCP 專案 ID
-- `GCP_SA_KEY`: GCP 服務帳戶金鑰 (JSON)
-- `DATABASE_URL`: 從 Terraform 輸出取得
-- `GRAPHQL_ENDPOINT`: GraphQL 端點
-- `ACTIVITYPUB_DOMAIN`: ActivityPub 域名
-- `SECRET_KEY`: 應用程式密鑰
-- `REDIS_URL`: 從 Terraform 輸出取得
+ 
 
 ### 方法二：使用部署腳本
 
@@ -182,7 +172,7 @@ gcloud services enable containerregistry.googleapis.com
 ./deploy.sh deploy --project-id YOUR_PROJECT_ID
 ```
 
-### 方法三：使用 Cloud Build
+### 方法三：使用 Cloud Build（GitHub 觸發器）
 
 #### 1. 設定 Cloud Build 觸發器
 
