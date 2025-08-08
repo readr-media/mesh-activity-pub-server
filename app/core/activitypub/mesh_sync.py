@@ -67,10 +67,9 @@ class MeshSyncManager:
                 print(f"Failed to get/create actor: {actor_id}")
                 return False
             
-            # Check if Note already exists
-            existing_pick = await self._get_existing_pick(activity_data.get("object", {}).get("id"), db)
-            if existing_pick:
-                print(f"Note already synced as Pick: {existing_pick.pick_id}")
+            # 使用 GraphQL Activity 記錄避免重複
+            existing_activity = await self.graphql_client.get_activity_by_activity_id(activity_data.get("object", {}).get("id"))
+            if existing_activity:
                 return True
             
             # Determine if this Note should become a Pick or Comment
@@ -162,12 +161,13 @@ class MeshSyncManager:
             result = await self.graphql_client.create_pick(pick_input)
             
             if result:
-                # Update local Pick record
-                await self._update_local_pick_with_mesh_id(
-                    activity_data.get("object", {}).get("id"),
-                    result.get("id"),
-                    db
-                )
+                # 紀錄 Activity 以避免重複處理
+                await self.graphql_client.create_activity({
+                    "activity_id": activity_data.get("object", {}).get("id"),
+                    "activity_type": "Create",
+                    "actor": {"connect": {"id": actor.graphql_id}},
+                    "object_data": activity_data.get("object", {}),
+                })
                 print(f"Successfully converted Note to Pick: {result.get('id')}")
                 return True
             
@@ -213,12 +213,13 @@ class MeshSyncManager:
             result = await self.graphql_client.create_comment(comment_input)
             
             if result:
-                # Update local Comment record
-                await self._update_local_comment_with_mesh_id(
-                    activity_data.get("object", {}).get("id"),
-                    result.get("id"),
-                    db
-                )
+                # 紀錄 Activity 以避免重複處理
+                await self.graphql_client.create_activity({
+                    "activity_id": activity_data.get("object", {}).get("id"),
+                    "activity_type": "Create",
+                    "actor": {"connect": {"id": actor.graphql_id}},
+                    "object_data": activity_data.get("object", {}),
+                })
                 print(f"Successfully converted Note to Comment: {result.get('id')}")
                 return True
             
@@ -242,10 +243,9 @@ class MeshSyncManager:
                 print(f"Failed to get/create actor: {actor_id}")
                 return False
             
-            # Check if Pick already exists
-            existing_pick = await self._get_existing_pick(activity_data.get("object", {}).get("id"), db)
-            if existing_pick:
-                print(f"Pick already exists: {existing_pick.pick_id}")
+            # 使用 GraphQL Activity 記錄避免重複
+            existing_activity = await self.graphql_client.get_activity_by_activity_id(activity_data.get("object", {}).get("id"))
+            if existing_activity:
                 return True
             
             # Prepare Pick data for Mesh
@@ -261,12 +261,13 @@ class MeshSyncManager:
             result = await self.graphql_client.create_pick(pick_input)
             
             if result:
-                # Update local Pick record with Mesh ID
-                await self._update_local_pick_with_mesh_id(
-                    activity_data.get("object", {}).get("id"),
-                    result.get("id"),
-                    db
-                )
+                # 紀錄 Activity 以避免重複處理
+                await self.graphql_client.create_activity({
+                    "activity_id": activity_data.get("object", {}).get("id"),
+                    "activity_type": "Create",
+                    "actor": {"connect": {"id": actor.graphql_id}},
+                    "object_data": activity_data.get("object", {}),
+                })
                 print(f"Successfully synced Pick to Mesh: {result.get('id')}")
                 return True
             else:
@@ -291,10 +292,9 @@ class MeshSyncManager:
                 print(f"Failed to get/create actor: {actor_id}")
                 return False
             
-            # Check if Comment already exists
-            existing_comment = await self._get_existing_comment(activity_data.get("object", {}).get("id"), db)
-            if existing_comment:
-                print(f"Comment already exists: {existing_comment.comment_id}")
+            # 使用 GraphQL Activity 記錄避免重複
+            existing_activity = await self.graphql_client.get_activity_by_activity_id(activity_data.get("object", {}).get("id"))
+            if existing_activity:
                 return True
             
             # Prepare Comment data for Mesh
@@ -319,12 +319,13 @@ class MeshSyncManager:
             result = await self.graphql_client.create_comment(comment_input)
             
             if result:
-                # Update local Comment record with Mesh ID
-                await self._update_local_comment_with_mesh_id(
-                    activity_data.get("object", {}).get("id"),
-                    result.get("id"),
-                    db
-                )
+                # 紀錄 Activity 以避免重複處理
+                await self.graphql_client.create_activity({
+                    "activity_id": activity_data.get("object", {}).get("id"),
+                    "activity_type": "Create",
+                    "actor": {"connect": {"id": actor.graphql_id}},
+                    "object_data": activity_data.get("object", {}),
+                })
                 print(f"Successfully synced Comment to Mesh: {result.get('id')}")
                 return True
             else:
@@ -411,71 +412,51 @@ class MeshSyncManager:
             return True
         return False
     
-    async def _get_or_create_actor(self, actor_id: str, db: AsyncSession) -> Optional[Actor]:
-        """Get or create Actor from ActivityPub actor ID"""
-        # Extract domain and username from actor ID
-        # Format: https://domain.com/users/username
+    async def _get_or_create_actor(self, actor_id: str, db: AsyncSession) -> Optional[Any]:
+        """以 GraphQL 取得或建立 ActivityPubActor，並回傳具備 graphql_id 與 mesh_member_id 的物件"""
+        from types import SimpleNamespace
         parts = actor_id.split("/")
-        if len(parts) >= 2:
-            domain = parts[2]  # domain.com
-            username = parts[-1]  # username
-            
-            # Check if actor exists
-            result = await db.execute(
-                select(Actor).where(
-                    Actor.username == username,
-                    Actor.domain == domain
-                )
-            )
-            actor = result.scalar_one_or_none()
-            
-            if actor:
-                return actor
-            
-            # Create new actor (basic info)
-            actor = Actor(
-                username=username,
-                domain=domain,
-                is_local=False,
-                public_key_pem="",  # Will be fetched later
-                inbox_url=f"{actor_id}/inbox",
-                outbox_url=f"{actor_id}/outbox"
-            )
-            
-            db.add(actor)
-            await db.commit()
-            await db.refresh(actor)
-            
-            return actor
-        
-        return None
+        if len(parts) < 2:
+            return None
+        username = parts[-1]
+        gql_actor = await self.graphql_client.get_actor_by_username(username)
+        if not gql_actor:
+            created = await self.graphql_client.create_actor({
+                "username": username,
+                "domain": parts[2],
+                "inbox_url": f"{actor_id}/inbox",
+                "outbox_url": f"{actor_id}/outbox",
+                "is_local": False,
+            })
+            if not created:
+                return None
+            gql_actor = await self.graphql_client.get_actor_by_username(username)
+        mesh_member_id = gql_actor.get("mesh_member", {}).get("id") if gql_actor.get("mesh_member") else None
+        return SimpleNamespace(graphql_id=gql_actor.get("id"), mesh_member_id=mesh_member_id, username=username)
     
     async def _get_or_create_story_id(self, story_info: Dict[str, Any]) -> str:
-        """Get or create Story ID in Mesh system"""
-        # This would typically involve creating a story in Mesh
-        # For now, return a placeholder
-        return "story_placeholder"
+        """改為透過 GraphQL 以 URL 查找或建立 Story，回傳其 id"""
+        if not story_info.get("url"):
+            return ""
+        story = await self.graphql_client.get_story_by_url(story_info["url"])
+        if story:
+            return story.get("id")
+        created = await self.graphql_client.create_story({
+            "title": story_info.get("title") or "",
+            "url": story_info["url"],
+            "og_image": story_info.get("image_url"),
+            "is_active": True,
+        })
+        return (created or {}).get("id", "")
     
-    async def _get_existing_pick(self, activity_id: str, db: AsyncSession) -> Optional[Pick]:
-        """Get existing Pick by ActivityPub ID"""
-        result = await db.execute(
-            select(Pick).where(Pick.pick_id == activity_id)
-        )
-        return result.scalar_one_or_none()
+    async def _get_existing_pick(self, activity_id: str, db: AsyncSession):
+        return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
-    async def _get_existing_comment(self, activity_id: str, db: AsyncSession) -> Optional[Comment]:
-        """Get existing Comment by ActivityPub ID"""
-        result = await db.execute(
-            select(Comment).where(Comment.comment_id == activity_id)
-        )
-        return result.scalar_one_or_none()
+    async def _get_existing_comment(self, activity_id: str, db: AsyncSession):
+        return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
-    async def _get_pick_by_activity_id(self, activity_id: str, db: AsyncSession) -> Optional[Pick]:
-        """Get Pick by ActivityPub ID"""
-        result = await db.execute(
-            select(Pick).where(Pick.pick_id == activity_id)
-        )
-        return result.scalar_one_or_none()
+    async def _get_pick_by_activity_id(self, activity_id: str, db: AsyncSession):
+        return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
     async def _find_pick_by_activity_id(self, activity_id: str, db: AsyncSession) -> Optional[Pick]:
         """Find Pick by ActivityPub ID (including partial matches)"""
@@ -488,34 +469,14 @@ class MeshSyncManager:
         # This is a simplified approach - in practice, you might need more sophisticated logic
         return None
     
-    async def _get_comment_by_activity_id(self, activity_id: str, db: AsyncSession) -> Optional[Comment]:
-        """Get Comment by ActivityPub ID"""
-        result = await db.execute(
-            select(Comment).where(Comment.comment_id == activity_id)
-        )
-        return result.scalar_one_or_none()
+    async def _get_comment_by_activity_id(self, activity_id: str, db: AsyncSession):
+        return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
     async def _update_local_pick_with_mesh_id(self, activity_id: str, mesh_id: str, db: AsyncSession):
-        """Update local Pick record with Mesh ID"""
-        result = await db.execute(
-            select(Pick).where(Pick.pick_id == activity_id)
-        )
-        pick = result.scalar_one_or_none()
-        
-        if pick:
-            pick.mesh_pick_id = mesh_id
-            await db.commit()
+        return
     
     async def _update_local_comment_with_mesh_id(self, activity_id: str, mesh_id: str, db: AsyncSession):
-        """Update local Comment record with Mesh ID"""
-        result = await db.execute(
-            select(Comment).where(Comment.comment_id == activity_id)
-        )
-        comment = result.scalar_one_or_none()
-        
-        if comment:
-            comment.mesh_comment_id = mesh_id
-            await db.commit()
+        return
 
 # Global instance
 mesh_sync_manager = MeshSyncManager()
