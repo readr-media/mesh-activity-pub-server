@@ -348,13 +348,10 @@ class MeshSyncManager:
             # Get liked object
             object_id = activity_data.get("object")
             
-            # Check if it's a Pick like
+            # Check if it's a Pick like（Keystone 目前不支援 Pick like 關聯，僅送出 AP Like）
             pick = await self._get_pick_by_activity_id(object_id, db)
             if pick and pick.mesh_pick_id:
-                result = await self.graphql_client.like_pick(pick.mesh_pick_id, actor.mesh_member_id)
-                if result:
-                    print(f"Successfully synced Pick like to Mesh: {result.get('id')}")
-                    return True
+                return True
             
             # Check if it's a Comment like
             comment = await self._get_comment_by_activity_id(object_id, db)

@@ -457,13 +457,6 @@ async def like_pick(
     if not pick:
         raise HTTPException(status_code=404, detail="Pick not found")
     
-    # 透過 GraphQL 按讚
-    gql_client = GraphQLClient()
-    like_result = await gql_client.like_pick(pick_id, member_id)
-    
-    if not like_result:
-        raise HTTPException(status_code=500, detail="Failed to like pick in Mesh")
-    
     # 檢查 ActivityPub 設定
     if actor.activitypub_enabled and actor.activitypub_federation_enabled:
         # 建立 ActivityPub Like 活動
@@ -472,7 +465,8 @@ async def like_pick(
         # 背景任務：發送到聯邦網路
         background_tasks.add_task(federate_activity, activity)
     
-    return {"status": "liked", "like_count": like_result.get("likeCount", 0)}
+    # Keystone 目前未支援 Pick 的 like 關聯，僅送出 ActivityPub Like
+    return {"status": "liked"}
 
 @router.post("/picks/{pick_id}/announce")
 async def announce_pick(
