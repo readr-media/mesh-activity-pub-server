@@ -68,6 +68,45 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error fetching member: {e}")
             return None
+
+    async def get_actor_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {
+                "id": "mock-actor-id",
+                "username": username,
+                "domain": settings.ACTIVITYPUB_DOMAIN,
+                "display_name": username,
+                "is_local": True,
+            }
+        query = """
+        query GetAPActor($username: String!) {
+          ActivityPubActors(where: { username: { equals: $username } }, take: 1) {
+            id username domain display_name summary icon_url inbox_url outbox_url followers_url following_url public_key_pem private_key_pem is_local
+          }
+        }
+        """
+        try:
+            result = await self.query(query, {"username": username})
+            items = result.get("data", {}).get("ActivityPubActors", [])
+            return items[0] if items else None
+        except Exception as e:
+            print(f"Error fetching actor: {e}")
+            return None
+
+    async def create_actor(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": "mock-actor-id"}
+        mutation = """
+        mutation CreateAPActor($data: ActivityPubActorCreateInput!) {
+          createActivityPubActor(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createActivityPubActor")
+        except Exception as e:
+            print(f"Error creating actor: {e}")
+            return None
     
     async def get_story(self, story_id: str) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):

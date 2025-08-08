@@ -1,15 +1,13 @@
 from fastapi import APIRouter, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import Dict, Any
 import re
 
-from app.models.activitypub import Actor
 from app.core.config import settings
+from app.core.graphql_client import GraphQLClient
 
 webfinger_router = APIRouter()
 
-async def handle_webfinger(resource: str, db: AsyncSession) -> Dict[str, Any]:
+async def handle_webfinger(resource: str, db=None) -> Dict[str, Any]:
     """處理 WebFinger 請求"""
     # 解析資源 URI
     # 格式: acct:username@domain
@@ -23,12 +21,9 @@ async def handle_webfinger(resource: str, db: AsyncSession) -> Dict[str, Any]:
     if domain != settings.ACTIVITYPUB_DOMAIN:
         raise HTTPException(status_code=404, detail="Domain not found")
     
-    # 查詢 Actor
-    result = await db.execute(
-        select(Actor).where(Actor.username == username)
-    )
-    actor = result.scalar_one_or_none()
-    
+    # 透過 GraphQL 查詢 Actor
+    gql = GraphQLClient()
+    actor = await gql.get_actor_by_username(username)
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
     
