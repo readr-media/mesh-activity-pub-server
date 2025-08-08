@@ -2,9 +2,7 @@ import httpx
 import asyncio
 from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-from app.models.activitypub import Actor, Follow, FederationInstance, FederationConnection
+from app.models.activitypub import FederationInstance, FederationConnection
 from app.core.config import settings
 from app.core.activitypub.federation_discovery import FederationDiscovery
 
@@ -87,8 +85,8 @@ async def send_activity_to_instance(activity: Dict[str, Any], instance: Federati
         db.add(connection)
         await db.commit()
 
-async def get_followers_for_activity(activity: Dict[str, Any], db: AsyncSession) -> List[Actor]:
-    """Get followers list for activity"""
+async def get_followers_for_activity(activity: Dict[str, Any], db: AsyncSession) -> List[Dict[str, Any]]:
+    """Get followers list for activity（改為透過 GraphQL）"""
     if not db:
         return []
     
@@ -100,38 +98,24 @@ async def get_followers_for_activity(activity: Dict[str, Any], db: AsyncSession)
     # Parse Actor ID to get username
     username = extract_username_from_actor_id(actor_id)
     
-    # Query local Actor
-    result = await db.execute(
-        select(Actor).where(Actor.username == username)
-    )
-    local_actor = result.scalar_one_or_none()
+    # 改為透過 GraphQL 取得 Actor 與追蹤者
+    from app.core.graphql_client import GraphQLClient
+    gql = GraphQLClient()
+    actor = await gql.get_actor_by_username(username)
     
-    if not local_actor:
+    if not actor:
         return []
     
-    # Query all accepted followers
-    result = await db.execute(
-        select(Follow).where(
-            Follow.following_id == local_actor.id,
-            Follow.is_accepted == True
-        ).options(selectinload(Follow.follower))
-    )
-    follows = result.scalars().all()
-    
-    # Filter external followers
-    external_followers = []
-    for follow in follows:
-        if not follow.follower.is_local:
-            external_followers.append(follow.follower)
-    
-    return external_followers
+    # TODO: 透過 GraphQL 取得追蹤者列表
+    # 目前先回傳空列表，待實作 GraphQL 追蹤者查詢
+    return []
 
-async def send_activity_to_inbox(activity: Dict[str, Any], follower: Actor):
+async def send_activity_to_inbox(activity: Dict[str, Any], follower: Dict[str, Any]):
     """發送活動到追蹤者的收件匣（保留向後相容性）"""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                follower.inbox_url,
+                follower.get("inbox_url", ""),
                 json=activity,
                 headers={
                     "Content-Type": "application/activity+json",
@@ -140,12 +124,12 @@ async def send_activity_to_inbox(activity: Dict[str, Any], follower: Actor):
             )
             
             if response.status_code in [200, 202]:
-                print(f"Successfully sent activity to {follower.inbox_url}")
+                print(f"Successfully sent activity to {follower.get('inbox_url', '')}")
             else:
-                print(f"Failed to send activity to {follower.inbox_url}: {response.status_code}")
+                print(f"Failed to send activity to {follower.get('inbox_url', '')}: {response.status_code}")
                 
     except Exception as e:
-        print(f"Error sending activity to {follower.inbox_url}: {e}")
+        print(f"Error sending activity to {follower.get('inbox_url', '')}: {e}")
 
 def extract_username_from_actor_id(actor_id: str) -> str:
     """從 Actor ID 中提取使用者名稱"""

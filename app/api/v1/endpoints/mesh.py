@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
 from app.core.database import get_db
 from app.core.graphql_client import GraphQLClient
-from app.models.activitypub import Actor, Story, Pick, Comment
 from app.core.activitypub.mesh_utils import (
     create_pick_activity, create_comment_activity,
     create_like_pick_activity, create_announce_pick_activity
@@ -90,39 +88,28 @@ async def get_member(
     if not member_data:
         raise HTTPException(status_code=404, detail="Member not found")
     
-    # 檢查本地是否有對應的 Actor
-    result = await db.execute(
-        select(Actor).where(Actor.mesh_member_id == member_id)
-    )
-    actor = result.scalar_one_or_none()
+    # 檢查本地是否有對應的 Actor（改為透過 GraphQL）
+    username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+    actor = await gql_client.get_actor_by_username(username)
     
     # 如果沒有本地 Actor，建立一個
     if not actor:
-        actor = Actor(
-            username=member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_"),
-            domain=settings.ACTIVITYPUB_DOMAIN,
-            display_name=member_data.get("name", ""),
-            summary=member_data.get("intro", ""),
-            icon_url=member_data.get("avatar", ""),
-            inbox_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/inbox",
-            outbox_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/outbox",
-            followers_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/followers",
-            following_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/following",
-            public_key_pem="",  # TODO: 生成金鑰
-            private_key_pem="",  # TODO: 生成金鑰
-            is_local=True,
-            mesh_member_id=member_id,
-            nickname=member_data.get("nickname"),
-            email=member_data.get("email"),
-            avatar=member_data.get("avatar"),
-            intro=member_data.get("intro"),
-            is_active=member_data.get("is_active", True),
-            verified=member_data.get("verified", False),
-            language=member_data.get("language", "zh-TW")
-        )
-        db.add(actor)
-        await db.commit()
-        await db.refresh(actor)
+        actor_data = {
+            "username": username,
+            "domain": settings.ACTIVITYPUB_DOMAIN,
+            "display_name": member_data.get("name", ""),
+            "summary": member_data.get("intro", ""),
+            "icon_url": member_data.get("avatar", ""),
+            "inbox_url": f"/users/{username}/inbox",
+            "outbox_url": f"/users/{username}/outbox",
+            "followers_url": f"/users/{username}/followers",
+            "following_url": f"/users/{username}/following",
+            "public_key_pem": "",  # TODO: 生成金鑰
+            "private_key_pem": "",  # TODO: 生成金鑰
+            "is_local": True,
+            "mesh_member": {"connect": {"id": member_id}},
+        }
+        actor = await gql_client.create_actor(actor_data)
     
     return MemberResponse(
         id=member_data["id"],
@@ -150,46 +137,28 @@ async def create_pick(
     db: AsyncSession = Depends(get_db)
 ):
     """建立新的 Pick（分享文章）"""
-    # 查詢或建立 Actor
-    result = await db.execute(
-        select(Actor).where(Actor.mesh_member_id == member_id)
-    )
-    actor = result.scalar_one_or_none()
+    # 查詢或建立 Actor（改為透過 GraphQL）
+    username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
-        # 如果沒有本地 Actor，先取得 Member 資訊
-        gql_client = GraphQLClient()
-        member_data = await gql_client.get_member(member_id)
-        
-        if not member_data:
-            raise HTTPException(status_code=404, detail="Member not found")
-        
-        # 建立 Actor
-        actor = Actor(
-            username=member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_"),
-            domain=settings.ACTIVITYPUB_DOMAIN,
-            display_name=member_data.get("name", ""),
-            summary=member_data.get("intro", ""),
-            icon_url=member_data.get("avatar", ""),
-            inbox_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/inbox",
-            outbox_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/outbox",
-            followers_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/followers",
-            following_url=f"/users/{member_data.get('nickname') or member_data.get('name', '').lower().replace(' ', '_')}/following",
-            public_key_pem="",  # TODO: 生成金鑰
-            private_key_pem="",  # TODO: 生成金鑰
-            is_local=True,
-            mesh_member_id=member_id,
-            nickname=member_data.get("nickname"),
-            email=member_data.get("email"),
-            avatar=member_data.get("avatar"),
-            intro=member_data.get("intro"),
-            is_active=member_data.get("is_active", True),
-            verified=member_data.get("verified", False),
-            language=member_data.get("language", "zh-TW")
-        )
-        db.add(actor)
-        await db.commit()
-        await db.refresh(actor)
+        # 如果沒有本地 Actor，建立一個
+        actor_data = {
+            "username": username,
+            "domain": settings.ACTIVITYPUB_DOMAIN,
+            "display_name": member_data.get("name", ""),
+            "summary": member_data.get("intro", ""),
+            "icon_url": member_data.get("avatar", ""),
+            "inbox_url": f"/users/{username}/inbox",
+            "outbox_url": f"/users/{username}/outbox",
+            "followers_url": f"/users/{username}/followers",
+            "following_url": f"/users/{username}/following",
+            "public_key_pem": "",  # TODO: 生成金鑰
+            "private_key_pem": "",  # TODO: 生成金鑰
+            "is_local": True,
+            "mesh_member": {"connect": {"id": member_id}},
+        }
+        actor = await gql_client.create_actor(actor_data)
     
     # 透過 GraphQL 取得 Story 資訊
     gql_client = GraphQLClient()
@@ -198,28 +167,7 @@ async def create_pick(
     if not story_data:
         raise HTTPException(status_code=404, detail="Story not found")
     
-    # 檢查 Story 是否已存在於本地資料庫
-    result = await db.execute(
-        select(Story).where(Story.mesh_story_id == pick_data.story_id)
-    )
-    story = result.scalar_one_or_none()
-    
-    if not story:
-        # 建立新的 Story 記錄
-        story = Story(
-            story_id=f"story_{pick_data.story_id}",
-            mesh_story_id=pick_data.story_id,
-            title=story_data.get("title", ""),
-            content=story_data.get("content", ""),
-            url=story_data.get("url", ""),
-            image_url=story_data.get("image", ""),
-            published_date=datetime.fromisoformat(story_data.get("published_date").replace("Z", "+00:00")) if story_data.get("published_date") else None,
-            is_active=story_data.get("is_active", True),
-            state=story_data.get("state", "published")
-        )
-        db.add(story)
-        await db.commit()
-        await db.refresh(story)
+    # 不再建立本地 Story 記錄，由 Mesh 端維護
     
     # 透過 GraphQL 建立 Pick
     pick_input = {
@@ -236,49 +184,33 @@ async def create_pick(
     if not mesh_pick:
         raise HTTPException(status_code=500, detail="Failed to create pick in Mesh")
     
-    # 建立本地 Pick 記錄
-    pick = Pick(
-        pick_id=f"pick_{mesh_pick['id']}",
-        mesh_pick_id=mesh_pick['id'],
-        actor_id=actor.id,
-        story_id=story.id,
-        kind=pick_data.kind,
-        objective=pick_data.objective,
-        paywall=pick_data.paywall,
-        picked_date=datetime.utcnow(),
-        is_active=True,
-        state="active"
-    )
+    # 不再建立本地 Pick 記錄，由 Mesh 端維護
     
-    db.add(pick)
-    await db.commit()
-    await db.refresh(pick)
-    
-    # 檢查 ActivityPub 設定
-    if actor.activitypub_enabled and actor.activitypub_federation_enabled:
+    # 檢查 ActivityPub 設定（改為從 GraphQL 取得）
+    if actor.get("activitypub_enabled") and actor.get("activitypub_federation_enabled"):
         # 建立 ActivityPub 活動
-        activity = create_pick_activity(pick, actor, story)
+        activity = create_pick_activity(mesh_pick, actor, story_data)
         
         # 背景任務：發送到聯邦網路
         background_tasks.add_task(federate_activity, activity)
     
     return PickResponse(
-        id=pick.pick_id,
-        story_id=story.story_id,
-        objective=pick.objective,
-        kind=pick.kind,
-        picked_date=pick.picked_date,
+        id=f"pick_{mesh_pick['id']}",
+        story_id=pick_data.story_id,
+        objective=pick_data.objective,
+        kind=pick_data.kind,
+        picked_date=datetime.utcnow(),
         story={
-            "id": story.story_id,
-            "title": story.title,
-            "url": story.url,
-            "image_url": story.image_url
+            "id": story_data["id"],
+            "title": story_data["title"],
+            "url": story_data["url"],
+            "image_url": story_data.get("image")
         },
         actor={
-            "id": actor.id,
-            "username": actor.username,
-            "display_name": actor.display_name,
-            "nickname": actor.nickname
+            "id": actor.get("id"),
+            "username": actor.get("username"),
+            "display_name": actor.get("display_name"),
+            "nickname": actor.get("nickname")
         }
     )
 
@@ -290,11 +222,9 @@ async def create_comment(
     db: AsyncSession = Depends(get_db)
 ):
     """建立新的 Comment"""
-    # 查詢 Actor
-    result = await db.execute(
-        select(Actor).where(Actor.mesh_member_id == member_id)
-    )
-    actor = result.scalar_one_or_none()
+    # 查詢 Actor（改為透過 GraphQL）
+    username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
@@ -318,65 +248,28 @@ async def create_comment(
     if not mesh_comment:
         raise HTTPException(status_code=500, detail="Failed to create comment in Mesh")
     
-    # 建立本地 Comment 記錄
-    comment = Comment(
-        comment_id=f"comment_{mesh_comment['id']}",
-        mesh_comment_id=mesh_comment['id'],
-        actor_id=actor.id,
-        content=comment_data.content,
-        published_date=datetime.utcnow(),
-        is_active=True,
-        state="published"
-    )
+    # 不再建立本地 Comment 記錄，由 Mesh 端維護
     
-    # 如果是指定 Pick 的評論
-    if comment_data.pick_id:
-        result = await db.execute(
-            select(Pick).where(Pick.mesh_pick_id == comment_data.pick_id)
-        )
-        pick = result.scalar_one_or_none()
-        if pick:
-            comment.pick_id = pick.id
-    
-    # 如果是回覆其他評論
-    if comment_data.parent_id:
-        result = await db.execute(
-            select(Comment).where(Comment.mesh_comment_id == comment_data.parent_id)
-        )
-        parent_comment = result.scalar_one_or_none()
-        if parent_comment:
-            comment.parent_id = parent_comment.id
-    
-    db.add(comment)
-    await db.commit()
-    await db.refresh(comment)
-    
-    # 檢查 ActivityPub 設定
-    if actor.activitypub_enabled and actor.activitypub_federation_enabled:
+    # 檢查 ActivityPub 設定（改為從 GraphQL 取得）
+    if actor.get("activitypub_enabled") and actor.get("activitypub_federation_enabled"):
         # 建立 ActivityPub 活動
-        activity = create_comment_activity(comment, actor, comment.pick)
+        activity = create_comment_activity(mesh_comment, actor, None)  # TODO: 取得 pick 資訊
         
         # 背景任務：發送到聯邦網路
         background_tasks.add_task(federate_activity, activity)
     
     return CommentResponse(
-        id=comment.comment_id,
-        content=comment.content,
-        published_date=comment.published_date,
+        id=f"comment_{mesh_comment['id']}",
+        content=comment_data.content,
+        published_date=datetime.utcnow(),
         actor={
-            "id": actor.id,
-            "username": actor.username,
-            "display_name": actor.display_name,
-            "nickname": actor.nickname
+            "id": actor.get("id"),
+            "username": actor.get("username"),
+            "display_name": actor.get("display_name"),
+            "nickname": actor.get("nickname")
         },
-        pick={
-            "id": comment.pick.pick_id,
-            "objective": comment.pick.objective
-        } if comment.pick else None,
-        parent={
-            "id": comment.parent.comment_id,
-            "content": comment.parent.content
-        } if comment.parent else None
+        pick=None,  # TODO: 從 GraphQL 取得 pick 資訊
+        parent=None  # TODO: 從 GraphQL 取得 parent 資訊
     )
 
 @router.get("/picks/{pick_id}/comments", response_model=List[CommentResponse])
@@ -387,14 +280,7 @@ async def get_pick_comments(
     db: AsyncSession = Depends(get_db)
 ):
     """取得 Pick 的評論列表"""
-    # 查詢 Pick
-    result = await db.execute(
-        select(Pick).where(Pick.mesh_pick_id == pick_id)
-    )
-    pick = result.scalar_one_or_none()
-    
-    if not pick:
-        raise HTTPException(status_code=404, detail="Pick not found")
+    # 不再查詢本地 Pick，由 Mesh 端維護
     
     # 透過 GraphQL 取得評論
     gql_client = GraphQLClient()
@@ -402,11 +288,11 @@ async def get_pick_comments(
     
     comments = []
     for comment_data in comments_data:
-        # 查詢對應的 Actor
-        result = await db.execute(
-            select(Actor).where(Actor.mesh_member_id == comment_data["member"]["id"])
-        )
-        actor = result.scalar_one_or_none()
+        # 查詢對應的 Actor（改為透過 GraphQL）
+        member_id = comment_data["member"]["id"]
+        member_data = await gql_client.get_member(member_id)
+        username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+        actor = await gql_client.get_actor_by_username(username)
         
         if actor:
             comments.append(CommentResponse(
@@ -414,14 +300,14 @@ async def get_pick_comments(
                 content=comment_data["content"],
                 published_date=datetime.fromisoformat(comment_data["published_date"].replace("Z", "+00:00")) if comment_data.get("published_date") else None,
                 actor={
-                    "id": actor.id,
-                    "username": actor.username,
-                    "display_name": actor.display_name,
-                    "nickname": actor.nickname
+                    "id": actor.get("id"),
+                    "username": actor.get("username"),
+                    "display_name": actor.get("display_name"),
+                    "nickname": actor.get("nickname")
                 },
                 pick={
-                    "id": pick.pick_id,
-                    "objective": pick.objective
+                    "id": pick_id,
+                    "objective": "分享的文章"  # TODO: 從 GraphQL 取得 pick 資訊
                 },
                 parent={
                     "id": f"comment_{comment_data['parent']['id']}",
@@ -439,28 +325,20 @@ async def like_pick(
     db: AsyncSession = Depends(get_db)
 ):
     """對 Pick 按讚"""
-    # 查詢 Actor
-    result = await db.execute(
-        select(Actor).where(Actor.mesh_member_id == member_id)
-    )
-    actor = result.scalar_one_or_none()
+    # 查詢 Actor（改為透過 GraphQL）
+    member_data = await gql_client.get_member(member_id)
+    username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
     
-    # 查詢 Pick
-    result = await db.execute(
-        select(Pick).where(Pick.mesh_pick_id == pick_id)
-    )
-    pick = result.scalar_one_or_none()
+    # 不再查詢本地 Pick，由 Mesh 端維護
     
-    if not pick:
-        raise HTTPException(status_code=404, detail="Pick not found")
-    
-    # 檢查 ActivityPub 設定
-    if actor.activitypub_enabled and actor.activitypub_federation_enabled:
-        # 建立 ActivityPub Like 活動
-        activity = create_like_pick_activity(pick, actor)
+    # 檢查 ActivityPub 設定（改為從 GraphQL 取得）
+    if actor.get("activitypub_enabled") and actor.get("activitypub_federation_enabled"):
+        # 建立 ActivityPub 活動
+        activity = create_like_pick_activity({"id": pick_id}, actor)
         
         # 背景任務：發送到聯邦網路
         background_tasks.add_task(federate_activity, activity)
@@ -476,33 +354,25 @@ async def announce_pick(
     db: AsyncSession = Depends(get_db)
 ):
     """轉發 Pick（類似 Facebook 的分享）"""
-    # 查詢 Actor
-    result = await db.execute(
-        select(Actor).where(Actor.mesh_member_id == member_id)
-    )
-    actor = result.scalar_one_or_none()
+    # 查詢 Actor（改為透過 GraphQL）
+    member_data = await gql_client.get_member(member_id)
+    username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
     
-    # 查詢 Pick
-    result = await db.execute(
-        select(Pick).where(Pick.mesh_pick_id == pick_id)
-    )
-    pick = result.scalar_one_or_none()
+    # 不再查詢本地 Pick，由 Mesh 端維護
     
-    if not pick:
-        raise HTTPException(status_code=404, detail="Pick not found")
-    
-    # 檢查 ActivityPub 設定
-    if actor.activitypub_enabled and actor.activitypub_federation_enabled:
-        # 建立 ActivityPub Announce 活動
-        activity = create_announce_pick_activity(pick, actor)
+    # 檢查 ActivityPub 設定（改為從 GraphQL 取得）
+    if actor.get("activitypub_enabled") and actor.get("activitypub_federation_enabled"):
+        # 建立 ActivityPub 活動
+        activity = create_announce_pick_activity({"id": pick_id}, actor)
         
         # 背景任務：發送到聯邦網路
         background_tasks.add_task(federate_activity, activity)
     
-    return {"status": "announced", "pick_id": pick.pick_id}
+    return {"status": "announced", "pick_id": pick_id}
 
 @router.get("/members/{member_id}/picks", response_model=List[PickResponse])
 async def get_member_picks(
@@ -518,11 +388,10 @@ async def get_member_picks(
     
     picks = []
     for pick_data in picks_data:
-        # 查詢對應的 Actor
-        result = await db.execute(
-            select(Actor).where(Actor.mesh_member_id == member_id)
-        )
-        actor = result.scalar_one_or_none()
+        # 查詢對應的 Actor（改為透過 GraphQL）
+        member_data = await gql_client.get_member(member_id)
+        username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
+        actor = await gql_client.get_actor_by_username(username)
         
         if actor:
             picks.append(PickResponse(
@@ -538,10 +407,10 @@ async def get_member_picks(
                     "image_url": pick_data["story"]["image"]
                 },
                 actor={
-                    "id": actor.id,
-                    "username": actor.username,
-                    "display_name": actor.display_name,
-                    "nickname": actor.nickname
+                    "id": actor.get("id"),
+                    "username": actor.get("username"),
+                    "display_name": actor.get("display_name"),
+                    "nickname": actor.get("nickname")
                 }
             ))
     
@@ -588,23 +457,7 @@ async def update_member_activitypub_settings(
     if not result:
         raise HTTPException(status_code=500, detail="Failed to update ActivityPub settings")
     
-    # 同步更新本地 Actor 的設定
-    result = await db.execute(
-        select(Actor).where(Actor.mesh_member_id == member_id)
-    )
-    actor = result.scalar_one_or_none()
-    
-    if actor:
-        actor.activitypub_enabled = settings_data.activitypub_enabled
-        if settings_data.activitypub_auto_follow is not None:
-            actor.activitypub_auto_follow = settings_data.activitypub_auto_follow
-        if settings_data.activitypub_public_posts is not None:
-            actor.activitypub_public_posts = settings_data.activitypub_public_posts
-        if settings_data.activitypub_federation_enabled is not None:
-            actor.activitypub_federation_enabled = settings_data.activitypub_federation_enabled
-        
-        await db.commit()
-        await db.refresh(actor)
+    # 不再同步更新本地 Actor，由 GraphQL 統一管理
     
     return ActivityPubSettingsResponse(
         id=result["id"],

@@ -1,12 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy import select
 from typing import List, Dict, Any
 import json
 
 from app.core.database import get_db
-from app.models.activitypub import Actor, Follow
+from app.core.graphql_client import GraphQLClient
 from app.core.config import settings
 from app.core.activitypub.utils import generate_actor_id, create_actor_object
 
@@ -17,17 +15,15 @@ async def get_actor(
     username: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get Actor information"""
-    # Query Actor
-    result = await db.execute(
-        select(Actor).where(Actor.username == username)
-    )
-    actor = result.scalar_one_or_none()
+    """Get Actor information（改為透過 GraphQL）"""
+    # Query Actor via GraphQL
+    gql_client = GraphQLClient()
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
     
-    # Create Actor object
+    # Create Actor object from GraphQL data
     actor_object = create_actor_object(actor)
     
     return actor_object
@@ -37,30 +33,17 @@ async def get_followers(
     username: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get followers list"""
-    # Query Actor
-    result = await db.execute(
-        select(Actor).where(Actor.username == username)
-    )
-    actor = result.scalar_one_or_none()
+    """Get followers list（改為透過 GraphQL）"""
+    # Query Actor via GraphQL
+    gql_client = GraphQLClient()
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
     
-    # Query followers
-    result = await db.execute(
-        select(Follow).where(
-            Follow.following_id == actor.id,
-            Follow.is_accepted == True
-        ).options(selectinload(Follow.follower))
-    )
-    follows = result.scalars().all()
-    
-    # Create followers list
+    # TODO: 透過 GraphQL 取得追蹤者列表
+    # 目前先回傳空列表，待實作 GraphQL 追蹤者查詢
     followers = []
-    for follow in follows:
-        follower_actor = create_actor_object(follow.follower)
-        followers.append(follower_actor)
     
     return {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -75,30 +58,17 @@ async def get_following(
     username: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get following list"""
-    # Query Actor
-    result = await db.execute(
-        select(Actor).where(Actor.username == username)
-    )
-    actor = result.scalar_one_or_none()
+    """Get following list（改為透過 GraphQL）"""
+    # Query Actor via GraphQL
+    gql_client = GraphQLClient()
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
     
-    # Query following
-    result = await db.execute(
-        select(Follow).where(
-            Follow.follower_id == actor.id,
-            Follow.is_accepted == True
-        ).options(selectinload(Follow.following))
-    )
-    follows = result.scalars().all()
-    
-    # Create following list
+    # TODO: 透過 GraphQL 取得追蹤中列表
+    # 目前先回傳空列表，待實作 GraphQL 追蹤中查詢
     following = []
-    for follow in follows:
-        following_actor = create_actor_object(follow.following)
-        following.append(following_actor)
     
     return {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -113,12 +83,10 @@ async def get_outbox(
     username: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get outbox"""
-    # Query Actor
-    result = await db.execute(
-        select(Actor).where(Actor.username == username)
-    )
-    actor = result.scalar_one_or_none()
+    """Get outbox（改為透過 GraphQL）"""
+    # Query Actor via GraphQL
+    gql_client = GraphQLClient()
+    actor = await gql_client.get_actor_by_username(username)
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")
