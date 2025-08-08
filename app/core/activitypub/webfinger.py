@@ -1,16 +1,15 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Dict, Any
 import re
 
-from app.core.database import get_db
 from app.models.activitypub import Actor
 from app.core.config import settings
 
 webfinger_router = APIRouter()
 
-async def handle_webfinger(resource: str) -> Dict[str, Any]:
+async def handle_webfinger(resource: str, db: AsyncSession) -> Dict[str, Any]:
     """處理 WebFinger 請求"""
     # 解析資源 URI
     # 格式: acct:username@domain
@@ -25,11 +24,10 @@ async def handle_webfinger(resource: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Domain not found")
     
     # 查詢 Actor
-    async with AsyncSession() as db:
-        result = await db.execute(
-            select(Actor).where(Actor.username == username)
-        )
-        actor = result.scalar_one_or_none()
+    result = await db.execute(
+        select(Actor).where(Actor.username == username)
+    )
+    actor = result.scalar_one_or_none()
     
     if not actor:
         raise HTTPException(status_code=404, detail="Actor not found")

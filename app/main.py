@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.api.v1.api import api_router
 from app.core.activitypub import activitypub_router
-from app.core.database import init_db
+from app.core.database import init_db, get_db
 
 app = FastAPI(
     title="READr Mesh ActivityPub Server",
@@ -41,10 +42,10 @@ async def root():
     return {"message": "READr Mesh ActivityPub Server"}
 
 @app.get("/.well-known/webfinger")
-async def webfinger(resource: str):
+async def webfinger(resource: str, db: AsyncSession = Depends(get_db)):
     """WebFinger endpoint for user discovery"""
     from app.core.activitypub.webfinger import handle_webfinger
-    return await handle_webfinger(resource)
+    return await handle_webfinger(resource, db)
 
 @app.get("/.well-known/nodeinfo")
 async def nodeinfo():
