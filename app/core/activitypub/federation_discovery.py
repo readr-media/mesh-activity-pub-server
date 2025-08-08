@@ -12,13 +12,15 @@ import re
 from urllib.parse import urlparse
 
 from app.models.activitypub import FederationInstance, FederationConnection
+from app.core.graphql_client import GraphQLClient
 from app.core.config import settings
 
 class FederationDiscovery:
     """聯邦網站發現器"""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession | None):
         self.db = db
+        self.gql = GraphQLClient()
         self.client = httpx.AsyncClient(timeout=30.0)
     
     async def discover_instance(self, domain: str) -> Optional[Dict[str, Any]]:
@@ -155,60 +157,52 @@ class FederationDiscovery:
             "outbox_url": activitypub.get("outbox", f"https://{domain}/outbox")
         }
     
-    async def save_instance(self, instance_data: Dict[str, Any]) -> FederationInstance:
-        """儲存聯邦實例"""
-        # 檢查是否已存在
-        result = await self.db.execute(
-            select(FederationInstance).where(FederationInstance.domain == instance_data["domain"])
-        )
-        existing_instance = result.scalar_one_or_none()
-        
-        if existing_instance:
-            # 更新現有實例
-            for key, value in instance_data.items():
-                if hasattr(existing_instance, key):
-                    setattr(existing_instance, key, value)
-            existing_instance.updated_at = datetime.utcnow()
-            existing_instance.last_seen = datetime.utcnow()
+    async def save_instance(self, instance_data: Dict[str, Any]) -> Dict[str, Any]:
+        """儲存聯邦實例（改用 GraphQL）"""
+        # 先查是否存在
+        existing = await self.gql.get_federation_instance(instance_data["domain"])
+        data = {
+            "domain": instance_data["domain"],
+            "name": instance_data.get("name") or instance_data["domain"],
+            "description": instance_data.get("description", ""),
+            "software": instance_data.get("software"),
+            "version": instance_data.get("version"),
+            "user_count": instance_data.get("user_count", 0),
+            "post_count": instance_data.get("post_count", 0),
+            "is_active": True,
+            "is_approved": False,
+            "is_blocked": False,
+        }
+        if existing:
+            await self.gql.update_federation_instance(existing.get("id"), data)
+            return existing
         else:
-            # 建立新實例
-            existing_instance = FederationInstance(
-                **instance_data,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-                last_seen=datetime.utcnow()
-            )
-            self.db.add(existing_instance)
-        
-        await self.db.commit()
-        await self.db.refresh(existing_instance)
-        return existing_instance
+            created = await self.gql.create_federation_instance(data)
+            return created or {}
     
-    async def test_connection(self, instance: FederationInstance) -> bool:
+    async def test_connection(self, instance: FederationInstance | Dict[str, Any]) -> bool:
         """測試與聯邦實例的連接"""
         try:
             # 測試 NodeInfo 端點
             response = await self.client.get(
-                f"https://{instance.domain}/.well-known/nodeinfo/2.0",
+                f"https://{(instance.domain if isinstance(instance, FederationInstance) else instance['domain'])}/.well-known/nodeinfo/2.0",
                 headers={"Accept": "application/json"}
             )
             
             if response.status_code == 200:
                 # 更新連接狀態
-                instance.last_successful_connection = datetime.utcnow()
-                instance.connection_count += 1
-                instance.error_count = 0
-                await self.db.commit()
+                if isinstance(instance, dict):
+                    await self.gql.update_federation_instance(instance.get("id"), {"last_successful_connection": datetime.utcnow().isoformat()})
                 return True
             else:
-                instance.error_count += 1
-                await self.db.commit()
+                if isinstance(instance, dict):
+                    await self.gql.update_federation_instance(instance.get("id"), {"error_count": (instance.get('error_count', 0) + 1)})
                 return False
                 
         except Exception as e:
             print(f"Error testing connection to {instance.domain}: {e}")
-            instance.error_count += 1
-            await self.db.commit()
+            if isinstance(instance, dict):
+                await self.gql.update_federation_instance(instance.get("id"), {"error_count": (instance.get('error_count', 0) + 1)})
             return False
     
     async def discover_from_activity(self, activity: Dict[str, Any]) -> List[str]:
@@ -256,69 +250,36 @@ class FederationDiscovery:
                 return self._extract_domain_from_actor(obj["actor"])
         return None
     
-    async def get_known_instances(self, limit: int = 100) -> List[FederationInstance]:
+    async def get_known_instances(self, limit: int = 100) -> List[Dict[str, Any]]:
         """取得已知的聯邦實例"""
-        result = await self.db.execute(
-            select(FederationInstance)
-            .where(FederationInstance.is_active == True)
-            .order_by(FederationInstance.last_seen.desc())
-            .limit(limit)
-        )
-        return result.scalars().all()
+        return await self.gql.list_federation_instances(limit=limit, offset=0, approved_only=False, active_only=True)
     
-    async def get_approved_instances(self) -> List[FederationInstance]:
+    async def get_approved_instances(self) -> List[Dict[str, Any]]:
         """取得已核准的聯邦實例"""
-        result = await self.db.execute(
-            select(FederationInstance)
-            .where(
-                FederationInstance.is_active == True,
-                FederationInstance.is_approved == True,
-                FederationInstance.is_blocked == False
-            )
-            .order_by(FederationInstance.last_seen.desc())
-        )
-        return result.scalars().all()
+        items = await self.gql.list_federation_instances(limit=1000, offset=0, approved_only=True, active_only=True)
+        return [i for i in items if not i.get("is_blocked")]
     
     async def update_instance_status(self, domain: str, **kwargs) -> bool:
         """更新實例狀態"""
-        try:
-            result = await self.db.execute(
-                update(FederationInstance)
-                .where(FederationInstance.domain == domain)
-                .values(**kwargs, updated_at=datetime.utcnow())
-            )
-            await self.db.commit()
-            return result.rowcount > 0
-        except Exception as e:
-            print(f"Error updating instance status for {domain}: {e}")
-            return False
+        data = kwargs.copy()
+        data["updated_at"] = datetime.utcnow().isoformat()
+        return await self.gql.update_federation_instance_by_domain(domain, data)
     
     async def cleanup_old_instances(self, days: int = 30) -> int:
         """清理舊的無效實例"""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        
-        result = await self.db.execute(
-            select(FederationInstance)
-            .where(
-                FederationInstance.last_seen < cutoff_date,
-                FederationInstance.is_approved == False,
-                FederationInstance.connection_count == 0
-            )
-        )
-        
-        instances_to_delete = result.scalars().all()
-        count = len(instances_to_delete)
-        
-        for instance in instances_to_delete:
-            await self.db.delete(instance)
-        
-        await self.db.commit()
+        # GraphQL Keystone 無法直接用日期比較刪除，改用列表過濾後逐筆刪除
+        items = await self.gql.list_federation_instances(limit=1000, offset=0, approved_only=False, active_only=True)
+        to_delete = [i for i in items if not i.get("is_approved") and (i.get("connection_count", 0) == 0)]
+        count = 0
+        for inst in to_delete:
+            if await self.gql.delete_federation_instance(inst.get("id")):
+                count += 1
         return count
 
 class FederationManager:
     """聯邦管理器"""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession | None):
         self.db = db
         self.discovery = FederationDiscovery(db)
     
@@ -339,7 +300,7 @@ class FederationManager:
                     discovered_domains.extend(new_domains)
                     
             except Exception as e:
-                print(f"Error discovering from instance {instance.domain}: {e}")
+                print(f"Error discovering from instance {(instance['domain'] if isinstance(instance, dict) else instance.domain)}: {e}")
         
         # 去重並發現新實例
         unique_domains = list(set(discovered_domains))
@@ -347,25 +308,21 @@ class FederationManager:
         
         for domain in unique_domains:
             # 檢查是否已存在
-            result = await self.db.execute(
-                select(FederationInstance).where(FederationInstance.domain == domain)
-            )
-            existing = result.scalar_one_or_none()
-            
+            existing = await self.discovery.gql.get_federation_instance(domain)
             if not existing:
                 # 發現新實例
                 instance_data = await self.discovery.discover_instance(domain)
                 if instance_data:
                     instance = await self.discovery.save_instance(instance_data)
-                    new_instances.append(instance.domain)
+                    new_instances.append(instance_data["domain"])
         
         return new_instances
     
-    async def _get_public_timeline(self, instance: FederationInstance) -> List[Dict[str, Any]]:
+    async def _get_public_timeline(self, instance: FederationInstance | Dict[str, Any]) -> List[Dict[str, Any]]:
         """取得實例的公開時間軸"""
         try:
             response = await self.discovery.client.get(
-                f"https://{instance.domain}/api/v1/timelines/public",
+                f"https://{(instance['domain'] if isinstance(instance, dict) else instance.domain)}/api/v1/timelines/public",
                 headers={"Accept": "application/json"},
                 params={"limit": 20}
             )
@@ -376,7 +333,7 @@ class FederationManager:
                 return []
                 
         except Exception as e:
-            print(f"Error getting public timeline from {instance.domain}: {e}")
+            print(f"Error getting public timeline from {(instance['domain'] if isinstance(instance, dict) else instance.domain)}: {e}")
             return []
     
     async def approve_instance(self, domain: str) -> bool:
@@ -402,35 +359,17 @@ class FederationManager:
         
         for instance in instances:
             success = await self.discovery.test_connection(instance)
-            results[instance.domain] = success
+            results[instance["domain"] if isinstance(instance, dict) else instance.domain] = success
         
         return results
     
     async def get_federation_stats(self) -> Dict[str, Any]:
         """取得聯邦統計資訊"""
-        # 總實例數
-        total_result = await self.db.execute(
-            select(FederationInstance)
-        )
-        total_instances = len(total_result.scalars().all())
-        
-        # 活躍實例數
-        active_result = await self.db.execute(
-            select(FederationInstance).where(FederationInstance.is_active == True)
-        )
-        active_instances = len(active_result.scalars().all())
-        
-        # 已核准實例數
-        approved_result = await self.db.execute(
-            select(FederationInstance).where(FederationInstance.is_approved == True)
-        )
-        approved_instances = len(approved_result.scalars().all())
-        
-        # 被封鎖實例數
-        blocked_result = await self.db.execute(
-            select(FederationInstance).where(FederationInstance.is_blocked == True)
-        )
-        blocked_instances = len(blocked_result.scalars().all())
+        items = await self.discovery.gql.list_federation_instances(limit=1000, offset=0)
+        total_instances = len(items)
+        active_instances = len([i for i in items if i.get("is_active")])
+        approved_instances = len([i for i in items if i.get("is_approved")])
+        blocked_instances = len([i for i in items if i.get("is_blocked")])
         
         return {
             "total_instances": total_instances,

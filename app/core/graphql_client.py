@@ -399,6 +399,33 @@ class GraphQLClient:
             print(f"Error updating instance: {e}")
             return None
 
+    async def delete_federation_instance(self, id: str) -> bool:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return True
+        mutation = """
+        mutation DeleteInstance($id: ID!) {
+          deleteFederationInstance(where: { id: $id }) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": id})
+            return bool(result.get("data", {}).get("deleteFederationInstance"))
+        except Exception as e:
+            print(f"Error deleting instance: {e}")
+            return False
+
+    async def update_federation_instance_by_domain(self, domain: str, data: Dict[str, Any]) -> bool:
+        instance = await self.get_federation_instance(domain)
+        if not instance:
+            return False
+        return bool(await self.update_federation_instance(instance.get("id"), data))
+
+    async def delete_federation_instance_by_domain(self, domain: str) -> bool:
+        instance = await self.get_federation_instance(domain)
+        if not instance:
+            return False
+        return await self.delete_federation_instance(instance.get("id"))
+
     async def update_member_activitypub_settings(
         self,
         member_id: str,
