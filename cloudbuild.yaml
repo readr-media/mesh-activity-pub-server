@@ -1,21 +1,72 @@
 steps:
-  # 步驟 1: 建立 Docker 映像
+  # 步驟 1: 安裝依賴和執行測試
+  - name: 'gcr.io/cloud-builders/python'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+        # 設定測試環境變數
+        export GRAPHQL_MOCK=true
+        export ACTIVITYPUB_DOMAIN=localhost:8000
+        export SECRET_KEY=test-secret-key-for-ci-cd
+        export REDIS_URL=redis://localhost:6379
+        
+        # 執行測試
+        python ci_test.py
+        
+        # 檢查測試結果
+        if [ $? -eq 0 ]; then
+          echo "✅ ActivityPub 測試通過"
+        else
+          echo "❌ ActivityPub 測試失敗"
+          exit 1
+        fi
+  
+  # 步驟 2: 建立 Docker 映像
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA', '.']
   
-  # 步驟 2: 推送映像到 Container Registry
+  # 步驟 3: 測試 Docker 映像
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        # 啟動測試容器
+        docker run -d \
+          --name test-container \
+          -p 8080:8080 \
+          -e GRAPHQL_MOCK=true \
+          -e ACTIVITYPUB_DOMAIN=localhost:8080 \
+          -e SECRET_KEY=test-secret \
+          gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA
+        
+        # 等待服務啟動
+        sleep 15
+        
+        # 測試基本端點
+        curl -f http://localhost:8080/ || exit 1
+        
+        # 清理測試容器
+        docker stop test-container
+        docker rm test-container
+  
+  # 步驟 4: 推送映像到 Container Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA']
   
-  # 步驟 3: 設定映像標籤
+  # 步驟 5: 設定映像標籤
   - name: 'gcr.io/cloud-builders/docker'
     args: ['tag', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:$COMMIT_SHA', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:latest']
   
-  # 步驟 4: 推送最新標籤
+  # 步驟 6: 推送最新標籤
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/mesh-activity-pub-server:latest']
   
-  # 步驟 5: 部署到 Cloud Run
+  # 步驟 7: 部署到 Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -40,7 +91,25 @@ steps:
       - '--port'
       - '8080'
       - '--set-env-vars'
-      - 'DATABASE_URL=${_DATABASE_URL},GRAPHQL_ENDPOINT=${_GRAPHQL_ENDPOINT},ACTIVITYPUB_DOMAIN=${_ACTIVITYPUB_DOMAIN},SECRET_KEY=${_SECRET_KEY},REDIS_URL=${_REDIS_URL}'
+      - 'GRAPHQL_ENDPOINT=${_GRAPHQL_ENDPOINT},ACTIVITYPUB_DOMAIN=${_ACTIVITYPUB_DOMAIN},SECRET_KEY=${_SECRET_KEY}'
+  
+  # 步驟 8: 部署後測試
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        # 獲取部署的 URL
+        SERVICE_URL=$(gcloud run services describe mesh-activity-pub-server --region=asia-east1 --format="value(status.url)")
+        
+        # 等待服務完全啟動
+        sleep 30
+        
+        # 測試部署的服務
+        curl -f "$SERVICE_URL/" || exit 1
+        curl -f "$SERVICE_URL/api/v1/health/" || exit 1
+        
+        echo "✅ 部署測試通過: $SERVICE_URL"
 
 # 設定映像名稱
 images:

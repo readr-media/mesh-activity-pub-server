@@ -9,8 +9,26 @@ import httpx
 import json
 import time
 import sys
+import os
 from typing import Dict, Any, List
 from datetime import datetime
+
+# 導入測試配置
+try:
+    from test_config import setup_test_environment, CI_TEST_CONFIG
+    setup_test_environment()
+except ImportError:
+    # 如果沒有 test_config，使用預設配置
+    CI_TEST_CONFIG = {
+        "timeout": 30,
+        "retry_count": 3,
+        "health_check_endpoints": ["/", "/api/v1/health/", "/.well-known/nodeinfo"],
+        "expected_status_codes": {
+            "basic_endpoints": 200,
+            "activitypub_endpoints": [200, 404],
+            "api_endpoints": [200, 400, 500]
+        }
+    }
 
 class ActivityPubTester:
     def __init__(self, base_url: str = "http://localhost:8000"):
@@ -259,11 +277,15 @@ class ActivityPubTester:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"activitypub_test_report_{timestamp}.json"
         
-        with open(filename, 'w', encoding='utf-8') as f:
+        # 確保報告目錄存在
+        os.makedirs("test-results", exist_ok=True)
+        filepath = os.path.join("test-results", filename)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
         
-        print(f"\n💾 測試報告已保存至: {filename}")
-        return filename
+        print(f"\n💾 測試報告已保存至: {filepath}")
+        return filepath
     
     async def close(self):
         """關閉客戶端"""

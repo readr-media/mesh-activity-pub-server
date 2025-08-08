@@ -50,8 +50,15 @@ test-quick:
 clean:
 	@echo "🧹 清理臨時文件..."
 	rm -f activitypub_test_report_*.json
+	rm -f ci_activitypub_test_report_*.json
+	rm -f test_report_*.json
+	rm -f *.test.log
+	rm -f *.tmp
+	rm -f *.temp
 	rm -f *.pyc
 	rm -rf __pycache__
+	rm -rf test_artifacts/
+	rm -rf test-results/
 	find . -name "*.pyc" -delete
 	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 

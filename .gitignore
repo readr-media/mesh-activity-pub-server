@@ -208,3 +208,17 @@ __marimo__/
 
 # local dev db
 app.db
+
+# Test reports and artifacts
+activitypub_test_report_*.json
+ci_activitypub_test_report_*.json
+test_report_*.json
+*.test.log
+test_artifacts/
+test-results/
+
+# Temporary test files
+*.tmp
+*.temp
+test_*.pyc
+__pycache__/test_*
