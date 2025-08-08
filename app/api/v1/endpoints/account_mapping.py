@@ -14,6 +14,7 @@ from app.models.activitypub import AccountMapping, AccountDiscovery, AccountSync
 from app.core.activitypub.account_discovery import (
     AccountDiscoveryService, AccountMappingService, AccountSyncService
 )
+from app.core.graphql_client import GraphQLClient
 
 router = APIRouter()
 
@@ -147,31 +148,9 @@ async def get_account_discoveries(
     db: AsyncSession = Depends(get_db)
 ):
     """取得帳號發現記錄"""
-    result = await db.execute(
-        select(AccountDiscovery)
-        .where(AccountDiscovery.mesh_member_id == member_id)
-        .order_by(AccountDiscovery.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    
-    discoveries = result.scalars().all()
-    
-    return [
-        {
-            "id": discovery.id,
-            "discovery_method": discovery.discovery_method,
-            "search_query": discovery.search_query,
-            "discovered_actor_id": discovery.discovered_actor_id,
-            "discovered_username": discovery.discovered_username,
-            "discovered_domain": discovery.discovered_domain,
-            "is_successful": discovery.is_successful,
-            "confidence_score": discovery.confidence_score,
-            "match_reason": discovery.match_reason,
-            "created_at": discovery.created_at
-        }
-        for discovery in discoveries
-    ]
+    gql = GraphQLClient()
+    discoveries = await gql.list_account_discoveries(member_id, limit, offset)
+    return discoveries
 
 @router.post("/mappings", response_model=AccountMappingResponse)
 async def create_account_mapping(
@@ -263,42 +242,35 @@ async def get_account_mapping(
     member_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """取得特定帳號映射"""
-    result = await db.execute(
-        select(AccountMapping).where(
-            AccountMapping.id == mapping_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    mapping = result.scalar_one_or_none()
-    
-    if not mapping:
+    """取得特定帳號映射（透過 GraphQL）"""
+    gql = GraphQLClient()
+    mapping = await gql.get_account_mapping_by_id(str(mapping_id))
+    if not mapping or mapping.get("mesh_member", {}).get("id") != member_id:
         raise HTTPException(status_code=404, detail="Account mapping not found")
-    
     return AccountMappingResponse(
-        id=mapping.id,
-        mesh_member_id=mapping.mesh_member_id,
-        remote_actor_id=mapping.remote_actor_id,
-        remote_username=mapping.remote_username,
-        remote_domain=mapping.remote_domain,
-        remote_display_name=mapping.remote_display_name,
-        remote_avatar_url=mapping.remote_avatar_url,
-        remote_summary=mapping.remote_summary,
-        is_verified=mapping.is_verified,
-        verification_method=mapping.verification_method,
-        verification_date=mapping.verification_date,
-        sync_enabled=mapping.sync_enabled,
-        sync_posts=mapping.sync_posts,
-        sync_follows=mapping.sync_follows,
-        sync_likes=mapping.sync_likes,
-        sync_announces=mapping.sync_announces,
-        last_sync_at=mapping.last_sync_at,
-        sync_error_count=mapping.sync_error_count,
-        remote_follower_count=mapping.remote_follower_count,
-        remote_following_count=mapping.remote_following_count,
-        remote_post_count=mapping.remote_post_count,
-        created_at=mapping.created_at,
-        updated_at=mapping.updated_at
+        id=int(mapping.get("id") or 0) if str(mapping.get("id", "")).isdigit() else mapping.get("id"),
+        mesh_member_id=mapping.get("mesh_member", {}).get("id"),
+        remote_actor_id=mapping.get("remote_actor_id"),
+        remote_username=mapping.get("remote_username"),
+        remote_domain=mapping.get("remote_domain"),
+        remote_display_name=mapping.get("remote_display_name"),
+        remote_avatar_url=mapping.get("remote_avatar_url"),
+        remote_summary=mapping.get("remote_summary"),
+        is_verified=mapping.get("is_verified", False),
+        verification_method=mapping.get("verification_method"),
+        verification_date=mapping.get("verification_date"),
+        sync_enabled=mapping.get("sync_enabled", True),
+        sync_posts=mapping.get("sync_posts", True),
+        sync_follows=mapping.get("sync_follows", False),
+        sync_likes=mapping.get("sync_likes", False),
+        sync_announces=mapping.get("sync_announces", False),
+        last_sync_at=mapping.get("last_sync_at"),
+        sync_error_count=mapping.get("sync_error_count", 0),
+        remote_follower_count=mapping.get("remote_follower_count", 0),
+        remote_following_count=mapping.get("remote_following_count", 0),
+        remote_post_count=mapping.get("remote_post_count", 0),
+        created_at=mapping.get("created_at"),
+        updated_at=mapping.get("updated_at"),
     )
 
 @router.put("/mappings/{mapping_id}", response_model=AccountMappingResponse)
@@ -311,16 +283,9 @@ async def update_account_mapping(
     """更新帳號映射設定"""
     mapping_service = AccountMappingService(db)
     
-    # 檢查映射是否屬於該 Member
-    result = await db.execute(
-        select(AccountMapping).where(
-            AccountMapping.id == mapping_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    mapping = result.scalar_one_or_none()
-    
-    if not mapping:
+    gql = GraphQLClient()
+    mapping = await gql.get_account_mapping_by_id(str(mapping_id))
+    if not mapping or mapping.get("mesh_member", {}).get("id") != member_id:
         raise HTTPException(status_code=404, detail="Account mapping not found")
     
     # 更新同步設定
@@ -371,16 +336,9 @@ async def verify_account_mapping(
     """驗證帳號映射"""
     mapping_service = AccountMappingService(db)
     
-    # 檢查映射是否屬於該 Member
-    result = await db.execute(
-        select(AccountMapping).where(
-            AccountMapping.id == mapping_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    mapping = result.scalar_one_or_none()
-    
-    if not mapping:
+    gql = GraphQLClient()
+    mapping = await gql.get_account_mapping_by_id(str(mapping_id))
+    if not mapping or mapping.get("mesh_member", {}).get("id") != member_id:
         raise HTTPException(status_code=404, detail="Account mapping not found")
     
     success = await mapping_service.verify_account_mapping(mapping_id, "manual")
@@ -399,16 +357,9 @@ async def delete_account_mapping(
     """刪除帳號映射"""
     mapping_service = AccountMappingService(db)
     
-    # 檢查映射是否屬於該 Member
-    result = await db.execute(
-        select(AccountMapping).where(
-            AccountMapping.id == mapping_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    mapping = result.scalar_one_or_none()
-    
-    if not mapping:
+    gql = GraphQLClient()
+    mapping = await gql.get_account_mapping_by_id(str(mapping_id))
+    if not mapping or mapping.get("mesh_member", {}).get("id") != member_id:
         raise HTTPException(status_code=404, detail="Account mapping not found")
     
     success = await mapping_service.delete_account_mapping(mapping_id)
@@ -517,29 +468,20 @@ async def get_sync_task(
     db: AsyncSession = Depends(get_db)
 ):
     """取得特定同步任務"""
-    result = await db.execute(
-        select(AccountSyncTask)
-        .join(AccountMapping, AccountSyncTask.mapping_id == AccountMapping.id)
-        .where(
-            AccountSyncTask.id == task_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    task = result.scalar_one_or_none()
-    
-    if not task:
+    gql = GraphQLClient()
+    task = await gql.get_account_sync_task(str(task_id))
+    if not task or task.get("mapping", {}).get("id") != str(mapping_id):
         raise HTTPException(status_code=404, detail="Sync task not found")
-    
     return AccountSyncResponse(
-        id=task.id,
-        mapping_id=task.mapping_id,
-        sync_type=task.sync_type,
-        status=task.status,
-        progress=task.progress,
-        items_processed=task.items_processed,
-        items_synced=task.items_synced,
-        items_failed=task.items_failed,
-        created_at=task.created_at,
-        started_at=task.started_at,
-        completed_at=task.completed_at
+        id=task.get("id"),
+        mapping_id=task.get("mapping", {}).get("id"),
+        sync_type=task.get("sync_type"),
+        status=task.get("status"),
+        progress=task.get("progress", 0),
+        items_processed=task.get("items_processed", 0),
+        items_synced=task.get("items_synced", 0),
+        items_failed=task.get("items_failed", 0),
+        created_at=task.get("created_at"),
+        started_at=task.get("started_at"),
+        completed_at=task.get("completed_at"),
     )

@@ -68,7 +68,7 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error fetching member: {e}")
             return None
-
+    
     async def get_actor_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {
@@ -456,10 +456,10 @@ class GraphQLClient:
         if not instance:
             return False
         return await self.delete_federation_instance(instance.get("id"))
-
+    
     async def update_member_activitypub_settings(
-        self,
-        member_id: str,
+        self, 
+        member_id: str, 
         activitypub_enabled: bool,
         activitypub_auto_follow: Optional[bool] = None,
         activitypub_public_posts: Optional[bool] = None,
@@ -483,12 +483,12 @@ class GraphQLClient:
         mutation = """
         mutation UpdateMemberAP($id: ID!, $data: MemberUpdateInput!) {
           updateMember(where: { id: $id }, data: $data) {
-            id
-            activitypub_enabled
-            activitypub_auto_follow
-            activitypub_public_posts
-            activitypub_federation_enabled
-          }
+                id
+                activitypub_enabled
+                activitypub_auto_follow
+                activitypub_public_posts
+                activitypub_federation_enabled
+            }
         }
         """
         try:
@@ -497,7 +497,7 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error updating member settings: {e}")
             return None
-
+    
     async def add_comment_to_pick(self, pick_id: str, comment_id: str) -> bool:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return True
@@ -506,7 +506,7 @@ class GraphQLClient:
         mutation AddCommentToPick($pickId: ID!, $commentId: ID!) {
           updatePick(where: { id: $pickId }, data: { pick_comment: { connect: { id: $commentId } } }) {
             id
-          }
+            }
         }
         """
         try:
@@ -531,7 +531,7 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error creating activity: {e}")
             return None
-
+    
     async def get_activity_by_activity_id(self, activity_id: str) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return None
@@ -548,6 +548,235 @@ class GraphQLClient:
             print(f"Error fetching activity by activity_id: {e}")
             return None
 
+    # --- Account Discovery / Mapping / SyncTask ---
+    async def create_account_discovery(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {
+                "id": "mock-discovery-id",
+                **data,
+                "confidence_score": data.get("confidence_score", 0.8),
+            }
+        mutation = """
+        mutation CreateAccountDiscovery($data: AccountDiscoveryCreateInput!) {
+          createAccountDiscovery(data: $data) {
+            id
+            discovery_method
+            search_query
+            discovered_actor_id
+            discovered_username
+            discovered_domain
+            is_successful
+            confidence_score
+            match_reason
+            created_at
+            }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createAccountDiscovery")
+        except Exception as e:
+            print(f"Error creating account discovery: {e}")
+            return None
+
+    async def list_account_discoveries(self, member_id: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return []
+        query = """
+        query ListAccountDiscoveries($memberId: ID!, $take: Int!, $skip: Int!) {
+          AccountDiscoveries(
+            where: { mesh_member: { id: { equals: $memberId } } },
+            take: $take,
+            skip: $skip,
+            orderBy: { created_at: desc }
+          ) {
+            id discovery_method search_query discovered_actor_id discovered_username discovered_domain is_successful confidence_score match_reason created_at
+            }
+        }
+        """
+        try:
+            result = await self.query(query, {"memberId": member_id, "take": limit, "skip": offset})
+            return result.get("data", {}).get("AccountDiscoveries", [])
+        except Exception as e:
+            print(f"Error listing account discoveries: {e}")
+            return []
+    
+    async def get_account_mapping_by_member_and_remote_actor(self, member_id: str, remote_actor_id: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return None
+        query = """
+        query GetMapping($memberId: ID!, $remoteActor: String!) {
+          AccountMappings(
+            where: {
+              AND: [
+                { mesh_member: { id: { equals: $memberId } } },
+                { remote_actor_id: { equals: $remoteActor } }
+              ]
+            },
+            take: 1
+          ) {
+            id mesh_member { id } remote_actor_id remote_username remote_domain remote_display_name remote_avatar_url remote_summary is_verified verification_method verification_date sync_enabled sync_posts sync_follows sync_likes sync_announces last_sync_at sync_error_count remote_follower_count remote_following_count remote_post_count created_at updated_at
+            }
+        }
+        """
+        try:
+            result = await self.query(query, {"memberId": member_id, "remoteActor": remote_actor_id})
+            items = result.get("data", {}).get("AccountMappings", [])
+            return items[0] if items else None
+        except Exception as e:
+            print(f"Error getting account mapping by member and remote actor: {e}")
+            return None
+    
+    async def create_account_mapping(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": "mock-mapping-id", **data}
+        mutation = """
+        mutation CreateAccountMapping($data: AccountMappingCreateInput!) {
+          createAccountMapping(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createAccountMapping")
+        except Exception as e:
+            print(f"Error creating account mapping: {e}")
+            return None
+    
+    async def get_account_mappings(self, member_id: str) -> List[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return []
+        query = """
+        query GetAccountMappings($memberId: ID!) {
+          AccountMappings(where: { mesh_member: { id: { equals: $memberId } } }, orderBy: { created_at: desc }) {
+            id mesh_member { id } remote_actor_id remote_username remote_domain remote_display_name remote_avatar_url remote_summary is_verified verification_method verification_date sync_enabled sync_posts sync_follows sync_likes sync_announces last_sync_at sync_error_count remote_follower_count remote_following_count remote_post_count created_at updated_at
+            }
+        }
+        """
+        try:
+            result = await self.query(query, {"memberId": member_id})
+            return result.get("data", {}).get("AccountMappings", [])
+        except Exception as e:
+            print(f"Error fetching account mappings: {e}")
+            return []
+    
+    async def get_account_mapping_by_id(self, id: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": id, "mesh_member": {"id": "mock-member"}}
+        query = """
+        query GetAccountMapping($id: ID!) {
+          AccountMapping(where: { id: $id }) {
+            id mesh_member { id } remote_actor_id remote_username remote_domain remote_display_name remote_avatar_url remote_summary is_verified verification_method verification_date sync_enabled sync_posts sync_follows sync_likes sync_announces last_sync_at sync_error_count remote_follower_count remote_following_count remote_post_count created_at updated_at
+            }
+        }
+        """
+        try:
+            result = await self.query(query, {"id": id})
+            return result.get("data", {}).get("AccountMapping")
+        except Exception as e:
+            print(f"Error getting account mapping: {e}")
+            return None
+    
+    async def update_account_mapping(self, id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": id, **data}
+        mutation = """
+        mutation UpdateAccountMapping($id: ID!, $data: AccountMappingUpdateInput!) {
+          updateAccountMapping(where: { id: $id }, data: $data) {
+            id
+            }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": id, "data": data})
+            return result.get("data", {}).get("updateAccountMapping")
+        except Exception as e:
+            print(f"Error updating account mapping: {e}")
+            return None
+    
+    async def delete_account_mapping(self, id: str) -> bool:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return True
+        mutation = """
+        mutation DeleteAccountMapping($id: ID!) {
+          deleteAccountMapping(where: { id: $id }) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": id})
+            return bool(result.get("data", {}).get("deleteAccountMapping"))
+        except Exception as e:
+            print(f"Error deleting account mapping: {e}")
+            return False
+
+    async def create_account_sync_task(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": "mock-sync-task-id", **data, "status": data.get("status", "pending"), "progress": 0}
+        mutation = """
+        mutation CreateAccountSyncTask($data: AccountSyncTaskCreateInput!) {
+          createAccountSyncTask(data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"data": data})
+            return result.get("data", {}).get("createAccountSyncTask")
+        except Exception as e:
+            print(f"Error creating sync task: {e}")
+            return None
+    
+    async def update_account_sync_task(self, id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": id, **data}
+        mutation = """
+        mutation UpdateAccountSyncTask($id: ID!, $data: AccountSyncTaskUpdateInput!) {
+          updateAccountSyncTask(where: { id: $id }, data: $data) { id }
+        }
+        """
+        try:
+            result = await self.mutation(mutation, {"id": id, "data": data})
+            return result.get("data", {}).get("updateAccountSyncTask")
+        except Exception as e:
+            print(f"Error updating sync task: {e}")
+            return None
+
+    async def list_account_sync_tasks(self, mapping_id: str, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return []
+        query = """
+        query ListSyncTasks($mappingId: ID!, $take: Int!, $skip: Int!) {
+          AccountSyncTasks(
+            where: { mapping: { id: { equals: $mappingId } } },
+            take: $take,
+            skip: $skip,
+            orderBy: { created_at: desc }
+          ) {
+            id sync_type status progress items_processed items_synced items_failed created_at started_at completed_at error_message retry_count
+            }
+        }
+        """
+        try:
+            result = await self.query(query, {"mappingId": mapping_id, "take": limit, "skip": offset})
+            return result.get("data", {}).get("AccountSyncTasks", [])
+        except Exception as e:
+            print(f"Error listing sync tasks: {e}")
+            return []
+
+    async def get_account_sync_task(self, id: str) -> Optional[Dict[str, Any]]:
+        if getattr(settings, "GRAPHQL_MOCK", False):
+            return {"id": id, "status": "pending", "progress": 0}
+        query = """
+        query GetSyncTask($id: ID!) {
+          AccountSyncTask(where: { id: $id }) {
+            id sync_type status progress items_processed items_synced items_failed created_at started_at completed_at error_message retry_count mapping { id }
+          }
+        }
+        """
+        try:
+            result = await self.query(query, {"id": id})
+            return result.get("data", {}).get("AccountSyncTask")
+        except Exception as e:
+            print(f"Error getting sync task: {e}")
+            return None
+    
     async def create_inbox_item(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": data.get("activity_id", "mock-inbox-id")}
@@ -562,7 +791,7 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error creating inbox item: {e}")
             return None
-
+    
     async def update_inbox_item_processed(self, id: str, is_processed: bool) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": id, "is_processed": is_processed}
@@ -577,7 +806,7 @@ class GraphQLClient:
         except Exception as e:
             print(f"Error updating inbox item: {e}")
             return None
-
+    
     async def create_outbox_item(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"id": data.get("activity_id", "mock-outbox-id")}
