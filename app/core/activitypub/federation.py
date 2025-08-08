@@ -2,7 +2,8 @@ import httpx
 import asyncio
 from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, selectinload
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.models.activitypub import Actor, Follow, FederationInstance, FederationConnection
 from app.core.config import settings
 from app.core.activitypub.federation_discovery import FederationDiscovery

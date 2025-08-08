@@ -213,7 +213,7 @@ async def create_pick(
             content=story_data.get("content", ""),
             url=story_data.get("url", ""),
             image_url=story_data.get("image", ""),
-            published_date=datetime.fromisoformat(story_data.get("published_date")) if story_data.get("published_date") else None,
+            published_date=datetime.fromisoformat(story_data.get("published_date").replace("Z", "+00:00")) if story_data.get("published_date") else None,
             is_active=story_data.get("is_active", True),
             state=story_data.get("state", "published")
         )
@@ -412,7 +412,7 @@ async def get_pick_comments(
             comments.append(CommentResponse(
                 id=f"comment_{comment_data['id']}",
                 content=comment_data["content"],
-                published_date=datetime.fromisoformat(comment_data["published_date"]) if comment_data.get("published_date") else None,
+                published_date=datetime.fromisoformat(comment_data["published_date"].replace("Z", "+00:00")) if comment_data.get("published_date") else None,
                 actor={
                     "id": actor.id,
                     "username": actor.username,
@@ -536,7 +536,7 @@ async def get_member_picks(
                 story_id=pick_data["story"]["id"],
                 objective=pick_data.get("objective"),
                 kind=pick_data.get("kind", "share"),
-                picked_date=datetime.fromisoformat(pick_data["picked_date"]) if pick_data.get("picked_date") else None,
+                picked_date=datetime.fromisoformat(pick_data["picked_date"].replace("Z", "+00:00")) if pick_data.get("picked_date") else None,
                 story={
                     "id": pick_data["story"]["id"],
                     "title": pick_data["story"]["title"],

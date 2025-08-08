@@ -151,7 +151,7 @@ async def process_mesh_pick(activity_data: Dict[str, Any], db: AsyncSession):
         story_id=story.id,
         kind=pick_info["pick"]["kind"],
         objective=pick_info["pick"]["objective"],
-        picked_date=datetime.fromisoformat(pick_info["pick"]["picked_date"]) if pick_info["pick"]["picked_date"] else datetime.utcnow(),
+        picked_date=datetime.fromisoformat(pick_info["pick"]["picked_date"].replace("Z", "+00:00")) if pick_info["pick"].get("picked_date") else datetime.utcnow(),
         is_active=True,
         state="active"
     )
@@ -179,7 +179,7 @@ async def process_mesh_comment(activity_data: Dict[str, Any], db: AsyncSession):
         comment_id=activity_data.get("object", {}).get("id"),
         actor_id=actor.id,
         content=comment_info["content"],
-        published_date=datetime.fromisoformat(comment_info["published_date"]) if comment_info["published_date"] else datetime.utcnow(),
+        published_date=datetime.fromisoformat(comment_info["published_date"].replace("Z", "+00:00")) if comment_info.get("published_date") else datetime.utcnow(),
         is_active=True,
         state="published"
     )
@@ -233,7 +233,7 @@ async def process_article(activity_data: Dict[str, Any], db: AsyncSession):
         content=object_data.get("content", ""),
         url=object_data.get("url", ""),
         image_url=object_data.get("image", ""),
-        published_date=datetime.fromisoformat(object_data.get("published")) if object_data.get("published") else None,
+        published_date=datetime.fromisoformat(object_data.get("published").replace("Z", "+00:00")) if object_data.get("published") else None,
         is_active=True,
         state="published"
     )

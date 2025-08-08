@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -151,8 +151,7 @@ class Comment(Base):
     # 關聯
     actor = relationship("Actor", back_populates="comments")
     pick = relationship("Pick", back_populates="comments")
-    parent = relationship("Comment", remote_side=[id])
-    replies = relationship("Comment", backref=relationship("parent", remote_side=[id]))
+    parent = relationship("Comment", remote_side=[id], backref="replies")
 
 class Note(Base):
     """ActivityPub Note 模型（對應 READr 文章）"""
@@ -388,7 +387,7 @@ class AccountDiscovery(Base):
     __tablename__ = "account_discoveries"
     
     id = Column(Integer, primary_key=True, index=True)
-    mesh_member_id = Column(String(255), index=True, nullable=False)  # Mesh Member ID
+    mesh_member_id = Column(String(255), ForeignKey("actors.mesh_member_id"), index=True, nullable=False)  # Mesh Member ID
     
     # 發現資訊
     discovery_method = Column(String(50), nullable=False)  # manual, webfinger, activity, search
@@ -411,5 +410,4 @@ class AccountDiscovery(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     processed_at = Column(DateTime(timezone=True))  # 處理時間
     
-    # 關聯
-    mesh_member_id = Column(String(255), ForeignKey("actors.mesh_member_id"))
+    # 關聯（已於欄位定義中設置 ForeignKey）

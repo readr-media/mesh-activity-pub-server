@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # GraphQL settings
     GRAPHQL_ENDPOINT: str = "http://localhost:3000/api/graphql"
     GRAPHQL_TOKEN: Optional[str] = None
+    GRAPHQL_MOCK: bool = True
     
     # ActivityPub settings
     ACTIVITYPUB_DOMAIN: str = "activity.readr.tw"

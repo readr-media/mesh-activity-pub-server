@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import MetaData
+from contextlib import asynccontextmanager
 from app.core.config import settings
 
 # Create async engine
@@ -29,10 +30,8 @@ async def init_db():
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
 
+@asynccontextmanager
 async def get_db():
-    """Get database session"""
+    """Get database session (usable as FastAPI dependency and async context manager)"""
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
