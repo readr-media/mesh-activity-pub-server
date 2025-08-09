@@ -1,4 +1,6 @@
 from fastapi import APIRouter
+from fastapi.responses import ORJSONResponse
+from fastapi import Response
 from typing import Dict, Any
 from app.core.config import settings
 
@@ -15,10 +17,16 @@ def get_nodeinfo() -> Dict[str, Any]:
         ]
     }
 
-@nodeinfo_router.get("/2.0")
-def get_nodeinfo_2_0() -> Dict[str, Any]:
+@nodeinfo_router.get("", response_class=ORJSONResponse)
+def nodeinfo_index() -> Response:
+    """/.well-known/nodeinfo discovery endpoint"""
+    data = get_nodeinfo()
+    return ORJSONResponse(data, headers={"Cache-Control": "public, max-age=3600"})
+
+@nodeinfo_router.get("/2.0", response_class=ORJSONResponse)
+def get_nodeinfo_2_0() -> Response:
     """取得 NodeInfo 2.0 資訊"""
-    return {
+    data = {
         "version": "2.0",
         "software": {
             "name": "readr-mesh-activitypub",
@@ -60,3 +68,4 @@ def get_nodeinfo_2_0() -> Dict[str, Any]:
             "themeColor": "#1a1a1a"
         }
     }
+    return ORJSONResponse(data, headers={"Cache-Control": "public, max-age=3600"})

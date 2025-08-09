@@ -5,7 +5,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
 from app.core.config import settings
-from app.models.activitypub import Actor
+from typing import Union
 
 def generate_actor_id(username: str) -> str:
     """生成 Actor ID"""
@@ -79,7 +79,7 @@ def generate_key_pair() -> tuple[str, str]:
 
 def create_activity_object(
     activity_type: str,
-    actor: Actor,
+    actor: Any,
     object_data: Dict[str, Any],
     target_data: Optional[Dict[str, Any]] = None,
     to: Optional[list] = None,
@@ -87,7 +87,8 @@ def create_activity_object(
 ) -> Dict[str, Any]:
     """建立 Activity 物件"""
     activity_id = generate_activity_id(activity_type, actor.username)
-    actor_id = generate_actor_id(actor.username)
+    username = actor.username if hasattr(actor, 'username') else actor.get('username')
+    actor_id = generate_actor_id(username)
     
     activity = {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -110,7 +111,7 @@ def create_activity_object(
     return activity
 
 def create_note_object(
-    actor: Actor,
+    actor: Any,
     content: str,
     content_type: str = "text/html",
     summary: Optional[str] = None,
@@ -121,8 +122,9 @@ def create_note_object(
     tags: Optional[list] = None
 ) -> Dict[str, Any]:
     """建立 Note 物件"""
-    note_id = generate_note_id(actor.username)
-    actor_id = generate_actor_id(actor.username)
+    username = actor.username if hasattr(actor, 'username') else actor.get('username')
+    note_id = generate_note_id(username)
+    actor_id = generate_actor_id(username)
     
     note = {
         "@context": "https://www.w3.org/ns/activitystreams",

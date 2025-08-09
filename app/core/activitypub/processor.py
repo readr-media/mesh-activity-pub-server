@@ -1,4 +1,3 @@
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 import httpx
 from datetime import datetime
@@ -8,7 +7,7 @@ from app.core.activitypub.mesh_utils import parse_mesh_pick_from_activity, parse
 from app.core.activitypub.mesh_sync import mesh_sync_manager
 from app.core.graphql_client import GraphQLClient
 
-async def process_activity(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_activity(activity_data: Dict[str, Any], db=None):
     """Process ActivityPub activity"""
     activity_type = activity_data.get("type")
     
@@ -28,12 +27,12 @@ async def process_activity(activity_data: Dict[str, Any], db: AsyncSession):
         # Log unknown activity type
         print(f"Unknown activity type: {activity_type}")
 
-async def process_follow(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_follow(activity_data: Dict[str, Any], db=None):
     """Process Follow activity"""
     # 改為由 mesh_sync_manager 透過 GraphQL 建立追蹤關係
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
-async def process_accept(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_accept(activity_data: Dict[str, Any], db=None):
     """處理 Accept 活動"""
     # 不再更新本地 Follow 記錄；僅記錄 Activity 以避免重複處理
     try:
@@ -48,7 +47,7 @@ async def process_accept(activity_data: Dict[str, Any], db: AsyncSession):
     except Exception:
         pass
 
-async def process_reject(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_reject(activity_data: Dict[str, Any], db=None):
     """處理 Reject 活動"""
     # 不再刪除本地 Follow 記錄；僅記錄 Activity 以避免重複處理
     try:
@@ -63,7 +62,7 @@ async def process_reject(activity_data: Dict[str, Any], db: AsyncSession):
     except Exception:
         pass
 
-async def process_create(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_create(activity_data: Dict[str, Any], db=None):
     """處理 Create 活動"""
     object_data = activity_data.get("object", {})
     object_type = object_data.get("type")
@@ -97,38 +96,38 @@ async def is_mesh_comment(object_data: Dict[str, Any]) -> bool:
         return True
     return False
 
-async def process_mesh_pick(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_mesh_pick(activity_data: Dict[str, Any], db=None):
     """Process Mesh Pick activity"""
     # 直接同步到 Mesh（GraphQL），不再落地本地 DB
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
-async def process_mesh_comment(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_mesh_comment(activity_data: Dict[str, Any], db=None):
     """Process Mesh Comment activity"""
     # 直接同步到 Mesh（GraphQL），不再落地本地 DB
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
-async def process_note(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_note(activity_data: Dict[str, Any], db=None):
     """處理一般 Note 活動"""
     object_data = activity_data.get("object", {})
     
     # Note 不再落地 DB，改為依內容轉換至 Mesh（Pick/Comment）
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
-async def process_article(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_article(activity_data: Dict[str, Any], db=None):
     """處理 Article 活動"""
     object_data = activity_data.get("object", {})
     
     # Story 不再落地 DB，由 Mesh 端維護
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
-async def process_like(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_like(activity_data: Dict[str, Any], db=None):
     """Process Like activity"""
     # TODO: Implement Like processing logic
     # This needs to handle based on the liked object type (Pick, Comment, Note)
     # Sync to Mesh system
     await mesh_sync_manager.sync_activity_to_mesh(activity_data, db)
 
-async def process_announce(activity_data: Dict[str, Any], db: AsyncSession):
+async def process_announce(activity_data: Dict[str, Any], db=None):
     """Process Announce activity"""
     # TODO: Implement Announce processing logic
     # This is usually repost/share functionality

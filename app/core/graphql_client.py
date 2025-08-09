@@ -4,10 +4,18 @@ from app.core.config import settings
 
 class GraphQLClient:
     """GraphQL client"""
+    # 共享 httpx AsyncClient（由應用啟動時注入）
+    shared_client: Optional[httpx.AsyncClient] = None
     
-    def __init__(self, endpoint: Optional[str] = None, token: Optional[str] = None):
+    @classmethod
+    def set_shared_client(cls, client: Optional[httpx.AsyncClient]) -> None:
+        cls.shared_client = client
+    
+    def __init__(self, endpoint: Optional[str] = None, token: Optional[str] = None, client: Optional[httpx.AsyncClient] = None):
         self.endpoint = endpoint or settings.GRAPHQL_ENDPOINT
         self.token = token or settings.GRAPHQL_TOKEN
+        # 優先採用注入 client；否則採用 shared_client；最後回退到本地臨時 client
+        self.client = client or GraphQLClient.shared_client
         self.headers = {
             "Content-Type": "application/json",
         }
@@ -18,8 +26,15 @@ class GraphQLClient:
         if getattr(settings, "GRAPHQL_MOCK", False):
             return {"data": {"mock": True}}
         payload = {"query": query, "variables": variables or {}}
-        async with httpx.AsyncClient() as client:
-            response = await client.post(self.endpoint, json=payload, headers=self.headers, timeout=30.0)
+        # 優先使用注入或共享 client，否則回退到臨時 client
+        client: Optional[httpx.AsyncClient] = self.client
+        if client is not None:
+            response = await client.post(self.endpoint, json=payload, headers=self.headers)
+            response.raise_for_status()
+            return response.json()
+        # 回退：與舊邏輯相容
+        async with httpx.AsyncClient() as temp_client:
+            response = await temp_client.post(self.endpoint, json=payload, headers=self.headers, timeout=30.0)
             response.raise_for_status()
             return response.json()
     

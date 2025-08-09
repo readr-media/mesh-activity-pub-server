@@ -1,19 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
 import json
-
-from app.core.database import get_db
 from app.core.graphql_client import GraphQLClient
 from app.core.config import settings
 from app.core.activitypub.utils import generate_actor_id, create_actor_object
+from fastapi.responses import ORJSONResponse
 
 actor_router = APIRouter()
 
-@actor_router.get("/{username}")
+@actor_router.get("/{username}", response_class=ORJSONResponse)
 async def get_actor(
     username: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get Actor information（改為透過 GraphQL）"""
     # Query Actor via GraphQL
@@ -28,10 +25,9 @@ async def get_actor(
     
     return actor_object
 
-@actor_router.get("/{username}/followers")
+@actor_router.get("/{username}/followers", response_class=ORJSONResponse)
 async def get_followers(
     username: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get followers list（改為透過 GraphQL）"""
     # Query Actor via GraphQL
@@ -53,10 +49,9 @@ async def get_followers(
         "orderedItems": followers
     }
 
-@actor_router.get("/{username}/following")
+@actor_router.get("/{username}/following", response_class=ORJSONResponse)
 async def get_following(
     username: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get following list（改為透過 GraphQL）"""
     # Query Actor via GraphQL
@@ -78,10 +73,9 @@ async def get_following(
         "orderedItems": following
     }
 
-@actor_router.get("/{username}/outbox")
+@actor_router.get("/{username}/outbox", response_class=ORJSONResponse)
 async def get_outbox(
     username: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get outbox（改為透過 GraphQL）"""
     # Query Actor via GraphQL

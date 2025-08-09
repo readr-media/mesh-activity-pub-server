@@ -189,12 +189,12 @@ class ActivityPubTester:
             "paywall": False
         }
         
-        # 注意：這個端點存在但會因為內部錯誤而失敗
+        # 在 GraphQL mock 或已接上 GQL 服務時應成功建立，預期 200
         results.append(await self.test_endpoint(
             "POST",
             f"{self.base_url}/api/v1/mesh/picks?member_id=test",
             data=pick_data,
-            expected_status=500  # 預期失敗，因為內部錯誤
+            expected_status=200
         ))
         
         return results

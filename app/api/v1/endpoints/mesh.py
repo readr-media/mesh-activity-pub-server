@@ -1,10 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
-from app.core.database import get_db
 from app.core.graphql_client import GraphQLClient
 from app.core.activitypub.mesh_utils import (
     create_pick_activity, create_comment_activity,
@@ -78,7 +76,6 @@ class MemberResponse(BaseModel):
 @router.get("/members/{member_id}", response_model=MemberResponse)
 async def get_member(
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得 Member 資訊"""
     # 透過 GraphQL 取得 Member 資訊
@@ -134,9 +131,14 @@ async def create_pick(
     pick_data: PickCreate,
     member_id: str,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
 ):
     """建立新的 Pick（分享文章）"""
+    # 先建立 GraphQL client 並取得 Member 資訊
+    gql_client = GraphQLClient()
+    member_data = await gql_client.get_member(member_id)
+    if not member_data:
+        raise HTTPException(status_code=404, detail="Member not found")
+
     # 查詢或建立 Actor（改為透過 GraphQL）
     username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
     actor = await gql_client.get_actor_by_username(username)
@@ -161,7 +163,6 @@ async def create_pick(
         actor = await gql_client.create_actor(actor_data)
     
     # 透過 GraphQL 取得 Story 資訊
-    gql_client = GraphQLClient()
     story_data = await gql_client.get_story(pick_data.story_id)
     
     if not story_data:
@@ -219,7 +220,6 @@ async def create_comment(
     comment_data: CommentCreate,
     member_id: str,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
 ):
     """建立新的 Comment"""
     # 查詢 Actor（改為透過 GraphQL）
@@ -277,7 +277,6 @@ async def get_pick_comments(
     pick_id: str,
     limit: int = 20,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得 Pick 的評論列表"""
     # 不再查詢本地 Pick，由 Mesh 端維護
@@ -286,13 +285,19 @@ async def get_pick_comments(
     gql_client = GraphQLClient()
     comments_data = await gql_client.get_pick_comments(pick_id, limit, offset)
     
+    # 簡單快取避免 N+1：memberId -> actor
+    actor_cache: dict = {}
     comments = []
     for comment_data in comments_data:
         # 查詢對應的 Actor（改為透過 GraphQL）
         member_id = comment_data["member"]["id"]
-        member_data = await gql_client.get_member(member_id)
-        username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
-        actor = await gql_client.get_actor_by_username(username)
+        actor = actor_cache.get(member_id)
+        if actor is None:
+            member_data = await gql_client.get_member(member_id)
+            username = (member_data or {}).get("nickname") or (member_data or {}).get("name", "").lower().replace(" ", "_")
+            actor = await gql_client.get_actor_by_username(username) if username else None
+            if actor:
+                actor_cache[member_id] = actor
         
         if actor:
             comments.append(CommentResponse(
@@ -322,7 +327,6 @@ async def like_pick(
     pick_id: str,
     member_id: str,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
 ):
     """對 Pick 按讚"""
     # 查詢 Actor（改為透過 GraphQL）
@@ -351,7 +355,6 @@ async def announce_pick(
     pick_id: str,
     member_id: str,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
 ):
     """轉發 Pick（類似 Facebook 的分享）"""
     # 查詢 Actor（改為透過 GraphQL）
@@ -379,20 +382,19 @@ async def get_member_picks(
     member_id: str,
     limit: int = 20,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得 Member 的 Picks"""
     # 透過 GraphQL 取得 Member 的 Picks
     gql_client = GraphQLClient()
+    # 預先取得對應 Actor，避免 N+1
+    member_data = await gql_client.get_member(member_id)
+    username = (member_data or {}).get("nickname") or (member_data or {}).get("name", "").lower().replace(" ", "_")
+    actor = await gql_client.get_actor_by_username(username) if username else None
     picks_data = await gql_client.get_member_picks(member_id, limit, offset)
     
     picks = []
     for pick_data in picks_data:
         # 查詢對應的 Actor（改為透過 GraphQL）
-        member_data = await gql_client.get_member(member_id)
-        username = member_data.get("nickname") or member_data.get("name", "").lower().replace(" ", "_")
-        actor = await gql_client.get_actor_by_username(username)
-        
         if actor:
             picks.append(PickResponse(
                 id=f"pick_{pick_data['id']}",
@@ -404,7 +406,7 @@ async def get_member_picks(
                     "id": pick_data["story"]["id"],
                     "title": pick_data["story"]["title"],
                     "url": pick_data["story"]["url"],
-                    "image_url": pick_data["story"]["image"]
+                    "image_url": pick_data["story"].get("image")
                 },
                 actor={
                     "id": actor.get("id"),
@@ -419,7 +421,6 @@ async def get_member_picks(
 @router.get("/members/{member_id}/activitypub-settings", response_model=ActivityPubSettingsResponse)
 async def get_member_activitypub_settings(
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得 Member 的 ActivityPub 設定"""
     # 透過 GraphQL 取得 Member 資訊
@@ -441,7 +442,6 @@ async def get_member_activitypub_settings(
 async def update_member_activitypub_settings(
     member_id: str,
     settings_data: ActivityPubSettingsUpdate,
-    db: AsyncSession = Depends(get_db)
 ):
     """更新 Member 的 ActivityPub 設定"""
     # 透過 GraphQL 更新 Member 的 ActivityPub 設定

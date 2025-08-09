@@ -5,17 +5,12 @@
 import httpx
 import asyncio
 from typing import Dict, Any, List, Optional, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
 from datetime import datetime, timedelta
 import re
 from urllib.parse import urlparse
 import difflib
 
-from app.models.activitypub import (
-    AccountMapping, AccountDiscovery, AccountSyncTask, 
-    Actor, FederationInstance
-)
+# 不再依賴本地 ORM 模型
 from app.core.config import settings
 from app.core.activitypub.federation_discovery import FederationDiscovery
 from app.core.graphql_client import GraphQLClient
@@ -23,9 +18,10 @@ from app.core.graphql_client import GraphQLClient
 class AccountDiscoveryService:
     """帳號發現服務"""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db=None):
         self.db = db
-        self.client = httpx.AsyncClient(timeout=30.0)
+        # 使用與 GraphQL 相同的共享 client（若可用），否則退回獨立 client
+        self.client = getattr(GraphQLClient, 'shared_client', None) or httpx.AsyncClient(timeout=30.0)
         self.gql = GraphQLClient()
     
     async def discover_account_by_username(
@@ -327,10 +323,10 @@ class AccountDiscoveryService:
 class AccountMappingService:
     """帳號映射服務"""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db=None):
         self.db = db
         self.discovery_service = AccountDiscoveryService(db)
-        self.gql = GraphQLClient()
+        self.gql = GraphQLClient(client=getattr(GraphQLClient, 'shared_client', None))
     
     async def create_account_mapping(
         self, 
@@ -419,9 +415,11 @@ class AccountMappingService:
 class AccountSyncService:
     """帳號同步服務"""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db=None):
         self.db = db
-        self.client = httpx.AsyncClient(timeout=30.0)
+        # 與 GraphQLClient 共用 httpx client（如可用）
+        self.client = getattr(GraphQLClient, 'shared_client', None) or httpx.AsyncClient(timeout=30.0)
+        self.gql = GraphQLClient(client=getattr(GraphQLClient, 'shared_client', None))
     
     async def sync_account_content(
         self, 
@@ -579,7 +577,7 @@ class AccountSyncService:
                 mapping.remote_summary = actor_data.get("summary")
                 mapping.updated_at = datetime.utcnow()
                 
-                await self.db.commit()
+                # 由 GraphQL 維護映射資料，這裡不再提交本地 DB
                 
         except Exception as e:
             print(f"Error syncing profile: {e}")

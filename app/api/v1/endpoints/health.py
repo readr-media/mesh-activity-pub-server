@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from fastapi.responses import ORJSONResponse
 from app.core.graphql_client import GraphQLClient
 
 router = APIRouter()
@@ -13,4 +14,9 @@ async def health_check():
     except Exception as e:
         gql_status = f"unhealthy: {str(e)}"
 
-    return {"status": "ok", "graphql": gql_status, "service": "READr Mesh ActivityPub Server"}
+    # 直接回傳 ORJSONResponse 並加快取極短 TTL
+    return ORJSONResponse({
+        "status": "ok",
+        "graphql": gql_status,
+        "service": "READr Mesh ActivityPub Server"
+    }, headers={"Cache-Control": "public, max-age=5"})

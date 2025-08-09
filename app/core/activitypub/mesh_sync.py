@@ -6,11 +6,9 @@ Handles syncing ActivityPub activities to Mesh system via GraphQL
 import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from app.core.graphql_client import GraphQLClient
-from app.models.activitypub import Actor, Pick, Comment, Story
+from typing import Any
 from app.core.activitypub.mesh_utils import parse_mesh_pick_from_activity, parse_mesh_comment_from_activity
 from app.core.config import settings
 
@@ -20,7 +18,7 @@ class MeshSyncManager:
     def __init__(self):
         self.graphql_client = GraphQLClient()
     
-    async def sync_activity_to_mesh(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def sync_activity_to_mesh(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync ActivityPub activity to Mesh system"""
         activity_type = activity_data.get("type")
         
@@ -35,7 +33,7 @@ class MeshSyncManager:
         
         return False
     
-    async def _sync_create_activity(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _sync_create_activity(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync Create activity to Mesh"""
         object_data = activity_data.get("object", {})
         object_type = object_data.get("type")
@@ -54,7 +52,7 @@ class MeshSyncManager:
         
         return False
     
-    async def _sync_standard_note_to_mesh(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _sync_standard_note_to_mesh(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync standard ActivityPub Note to Mesh (Pick + Comment)"""
         try:
             object_data = activity_data.get("object", {})
@@ -116,7 +114,7 @@ class MeshSyncManager:
         
         return False
     
-    async def _convert_note_to_pick(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _convert_note_to_pick(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Convert ActivityPub Note to Mesh Pick"""
         try:
             object_data = activity_data.get("object", {})
@@ -177,7 +175,7 @@ class MeshSyncManager:
             print(f"Error converting Note to Pick: {e}")
             return False
     
-    async def _convert_note_to_comment(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _convert_note_to_comment(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Convert ActivityPub Note to Mesh Comment"""
         try:
             object_data = activity_data.get("object", {})
@@ -229,7 +227,7 @@ class MeshSyncManager:
             print(f"Error converting Note to Comment: {e}")
             return False
     
-    async def _sync_pick_to_mesh(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _sync_pick_to_mesh(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync Pick activity to Mesh system"""
         try:
             # Parse Pick data from ActivityPub
@@ -278,7 +276,7 @@ class MeshSyncManager:
             print(f"Error syncing Pick to Mesh: {e}")
             return False
     
-    async def _sync_comment_to_mesh(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _sync_comment_to_mesh(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync Comment activity to Mesh system"""
         try:
             # Parse Comment data from ActivityPub
@@ -336,7 +334,7 @@ class MeshSyncManager:
             print(f"Error syncing Comment to Mesh: {e}")
             return False
     
-    async def _sync_like_activity(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _sync_like_activity(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync Like activity to Mesh system"""
         try:
             # Get Actor
@@ -368,7 +366,7 @@ class MeshSyncManager:
             print(f"Error syncing Like activity to Mesh: {e}")
             return False
     
-    async def _sync_follow_activity(self, activity_data: Dict[str, Any], db: AsyncSession) -> bool:
+    async def _sync_follow_activity(self, activity_data: Dict[str, Any], db=None) -> bool:
         """Sync Follow activity to Mesh system"""
         try:
             # Get follower and following actors
@@ -412,7 +410,7 @@ class MeshSyncManager:
             return True
         return False
     
-    async def _get_or_create_actor(self, actor_id: str, db: AsyncSession) -> Optional[Any]:
+    async def _get_or_create_actor(self, actor_id: str, db=None) -> Optional[Any]:
         """以 GraphQL 取得或建立 ActivityPubActor，並回傳具備 graphql_id 與 mesh_member_id 的物件"""
         from types import SimpleNamespace
         parts = actor_id.split("/")
@@ -449,16 +447,16 @@ class MeshSyncManager:
         })
         return (created or {}).get("id", "")
     
-    async def _get_existing_pick(self, activity_id: str, db: AsyncSession):
+    async def _get_existing_pick(self, activity_id: str, db=None):
         return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
-    async def _get_existing_comment(self, activity_id: str, db: AsyncSession):
+    async def _get_existing_comment(self, activity_id: str, db=None):
         return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
-    async def _get_pick_by_activity_id(self, activity_id: str, db: AsyncSession):
+    async def _get_pick_by_activity_id(self, activity_id: str, db=None):
         return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
-    async def _find_pick_by_activity_id(self, activity_id: str, db: AsyncSession) -> Optional[Pick]:
+    async def _find_pick_by_activity_id(self, activity_id: str, db=None) -> Optional[Any]:
         """Find Pick by ActivityPub ID (including partial matches)"""
         # Try exact match first
         pick = await self._get_pick_by_activity_id(activity_id, db)
@@ -469,13 +467,13 @@ class MeshSyncManager:
         # This is a simplified approach - in practice, you might need more sophisticated logic
         return None
     
-    async def _get_comment_by_activity_id(self, activity_id: str, db: AsyncSession):
+    async def _get_comment_by_activity_id(self, activity_id: str, db=None):
         return await self.graphql_client.get_activity_by_activity_id(activity_id)
     
-    async def _update_local_pick_with_mesh_id(self, activity_id: str, mesh_id: str, db: AsyncSession):
+    async def _update_local_pick_with_mesh_id(self, activity_id: str, mesh_id: str, db=None):
         return
     
-    async def _update_local_comment_with_mesh_id(self, activity_id: str, mesh_id: str, db: AsyncSession):
+    async def _update_local_comment_with_mesh_id(self, activity_id: str, mesh_id: str, db=None):
         return
 
 # Global instance

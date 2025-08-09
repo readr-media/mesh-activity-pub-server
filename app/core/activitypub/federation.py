@@ -1,12 +1,11 @@
 import httpx
 import asyncio
 from typing import Dict, Any, List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.activitypub import FederationInstance, FederationConnection
+"""Federation helpers (no local ORM dependency)"""
 from app.core.config import settings
 from app.core.activitypub.federation_discovery import FederationDiscovery
 
-async def federate_activity(activity: Dict[str, Any], db: AsyncSession = None):
+async def federate_activity(activity: Dict[str, Any], db=None):
     """Send activity to federation network"""
     if not settings.FEDERATION_ENABLED:
         return
@@ -28,16 +27,17 @@ async def federate_activity(activity: Dict[str, Any], db: AsyncSession = None):
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
 
-async def send_activity_to_instance(activity: Dict[str, Any], instance: FederationInstance, db: AsyncSession):
+async def send_activity_to_instance(activity: Dict[str, Any], instance: Dict[str, Any], db=None):
     """Send activity to federation instance"""
     try:
         # Check instance settings
-        if not instance.auto_announce:
+        if not (instance.get("auto_announce", True)):
             return
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        transport = httpx.AsyncHTTPTransport(retries=2)
+        async with httpx.AsyncClient(timeout=30.0, transport=transport) as client:
             response = await client.post(
-                instance.inbox_url,
+                (instance.get("inbox_url") or f"https://{instance.get('domain')}/inbox"),
                 json=activity,
                 headers={
                     "Content-Type": "application/activity+json",
@@ -45,47 +45,15 @@ async def send_activity_to_instance(activity: Dict[str, Any], instance: Federati
                 }
             )
             
-            # Log connection
-            connection = FederationConnection(
-                instance_id=instance.id,
-                connection_type="activity",
-                direction="outbound",
-                source_actor=activity.get("actor"),
-                target_actor=activity.get("object", {}).get("actor") if isinstance(activity.get("object"), dict) else None,
-                activity_id=activity.get("id"),
-                status="success" if response.status_code in [200, 202] else "failed",
-                error_message=None if response.status_code in [200, 202] else f"HTTP {response.status_code}",
-                processed_at=asyncio.get_event_loop().time()
-            )
-            
-            db.add(connection)
-            await db.commit()
-            
             if response.status_code in [200, 202]:
-                print(f"Successfully sent activity to {instance.domain}")
+                print(f"Successfully sent activity to {instance.get('domain')}")
             else:
-                print(f"Failed to send activity to {instance.domain}: {response.status_code}")
+                print(f"Failed to send activity to {instance.get('domain')}: {response.status_code}")
                 
     except Exception as e:
-        print(f"Error sending activity to {instance.domain}: {e}")
-        
-        # Log error connection
-        connection = FederationConnection(
-            instance_id=instance.id,
-            connection_type="activity",
-            direction="outbound",
-            source_actor=activity.get("actor"),
-            target_actor=activity.get("object", {}).get("actor") if isinstance(activity.get("object"), dict) else None,
-            activity_id=activity.get("id"),
-            status="failed",
-            error_message=str(e),
-            processed_at=asyncio.get_event_loop().time()
-        )
-        
-        db.add(connection)
-        await db.commit()
+        print(f"Error sending activity to {instance.get('domain')}: {e}")
 
-async def get_followers_for_activity(activity: Dict[str, Any], db: AsyncSession) -> List[Dict[str, Any]]:
+async def get_followers_for_activity(activity: Dict[str, Any], db=None) -> List[Dict[str, Any]]:
     """Get followers list for activity（改為透過 GraphQL）"""
     if not db:
         return []

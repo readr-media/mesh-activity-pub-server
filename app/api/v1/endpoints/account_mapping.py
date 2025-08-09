@@ -2,15 +2,12 @@
 帳號發現和映射 API 端點
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
 
-from app.core.database import get_db
-from app.models.activitypub import AccountMapping, AccountDiscovery, AccountSyncTask
+# 移除對本地 ORM 模型的依賴，改為純 GraphQL
 from app.core.activitypub.account_discovery import (
     AccountDiscoveryService, AccountMappingService, AccountSyncService
 )
@@ -92,10 +89,9 @@ class AccountSyncResponse(BaseModel):
 async def discover_account(
     request: AccountDiscoveryRequest,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """發現帳號"""
-    discovery_service = AccountDiscoveryService(db)
+    discovery_service = AccountDiscoveryService(None)
     
     try:
         if request.method == "username":
@@ -145,7 +141,6 @@ async def get_account_discoveries(
     member_id: str,
     limit: int = 50,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得帳號發現記錄"""
     gql = GraphQLClient()
@@ -156,10 +151,9 @@ async def get_account_discoveries(
 async def create_account_mapping(
     request: AccountMappingCreate,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """建立帳號映射"""
-    mapping_service = AccountMappingService(db)
+    mapping_service = AccountMappingService(None)
     
     try:
         mapping = await mapping_service.create_account_mapping(
@@ -170,29 +164,29 @@ async def create_account_mapping(
             raise HTTPException(status_code=400, detail="Failed to create account mapping")
         
         return AccountMappingResponse(
-            id=mapping.id,
-            mesh_member_id=mapping.mesh_member_id,
-            remote_actor_id=mapping.remote_actor_id,
-            remote_username=mapping.remote_username,
-            remote_domain=mapping.remote_domain,
-            remote_display_name=mapping.remote_display_name,
-            remote_avatar_url=mapping.remote_avatar_url,
-            remote_summary=mapping.remote_summary,
-            is_verified=mapping.is_verified,
-            verification_method=mapping.verification_method,
-            verification_date=mapping.verification_date,
-            sync_enabled=mapping.sync_enabled,
-            sync_posts=mapping.sync_posts,
-            sync_follows=mapping.sync_follows,
-            sync_likes=mapping.sync_likes,
-            sync_announces=mapping.sync_announces,
-            last_sync_at=mapping.last_sync_at,
-            sync_error_count=mapping.sync_error_count,
-            remote_follower_count=mapping.remote_follower_count,
-            remote_following_count=mapping.remote_following_count,
-            remote_post_count=mapping.remote_post_count,
-            created_at=mapping.created_at,
-            updated_at=mapping.updated_at
+            id=int(mapping.get("id") or 0) if str(mapping.get("id", "")).isdigit() else mapping.get("id"),
+            mesh_member_id=(mapping.get("mesh_member") or {}).get("id"),
+            remote_actor_id=mapping.get("remote_actor_id"),
+            remote_username=mapping.get("remote_username"),
+            remote_domain=mapping.get("remote_domain"),
+            remote_display_name=mapping.get("remote_display_name"),
+            remote_avatar_url=mapping.get("remote_avatar_url"),
+            remote_summary=mapping.get("remote_summary"),
+            is_verified=mapping.get("is_verified", False),
+            verification_method=mapping.get("verification_method"),
+            verification_date=mapping.get("verification_date"),
+            sync_enabled=mapping.get("sync_enabled", True),
+            sync_posts=mapping.get("sync_posts", True),
+            sync_follows=mapping.get("sync_follows", False),
+            sync_likes=mapping.get("sync_likes", False),
+            sync_announces=mapping.get("sync_announces", False),
+            last_sync_at=mapping.get("last_sync_at"),
+            sync_error_count=mapping.get("sync_error_count", 0),
+            remote_follower_count=mapping.get("remote_follower_count", 0),
+            remote_following_count=mapping.get("remote_following_count", 0),
+            remote_post_count=mapping.get("remote_post_count", 0),
+            created_at=mapping.get("created_at"),
+            updated_at=mapping.get("updated_at")
         )
         
     except Exception as e:
@@ -201,46 +195,44 @@ async def create_account_mapping(
 @router.get("/mappings", response_model=List[AccountMappingResponse])
 async def get_account_mappings(
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得帳號映射列表"""
-    mapping_service = AccountMappingService(db)
+    mapping_service = AccountMappingService(None)
     mappings = await mapping_service.get_account_mappings(member_id)
     
     return [
         AccountMappingResponse(
-            id=mapping.id,
-            mesh_member_id=mapping.mesh_member_id,
-            remote_actor_id=mapping.remote_actor_id,
-            remote_username=mapping.remote_username,
-            remote_domain=mapping.remote_domain,
-            remote_display_name=mapping.remote_display_name,
-            remote_avatar_url=mapping.remote_avatar_url,
-            remote_summary=mapping.remote_summary,
-            is_verified=mapping.is_verified,
-            verification_method=mapping.verification_method,
-            verification_date=mapping.verification_date,
-            sync_enabled=mapping.sync_enabled,
-            sync_posts=mapping.sync_posts,
-            sync_follows=mapping.sync_follows,
-            sync_likes=mapping.sync_likes,
-            sync_announces=mapping.sync_announces,
-            last_sync_at=mapping.last_sync_at,
-            sync_error_count=mapping.sync_error_count,
-            remote_follower_count=mapping.remote_follower_count,
-            remote_following_count=mapping.remote_following_count,
-            remote_post_count=mapping.remote_post_count,
-            created_at=mapping.created_at,
-            updated_at=mapping.updated_at
+            id=int(m.get("id") or 0) if str(m.get("id", "")).isdigit() else m.get("id"),
+            mesh_member_id=(m.get("mesh_member") or {}).get("id"),
+            remote_actor_id=m.get("remote_actor_id"),
+            remote_username=m.get("remote_username"),
+            remote_domain=m.get("remote_domain"),
+            remote_display_name=m.get("remote_display_name"),
+            remote_avatar_url=m.get("remote_avatar_url"),
+            remote_summary=m.get("remote_summary"),
+            is_verified=m.get("is_verified", False),
+            verification_method=m.get("verification_method"),
+            verification_date=m.get("verification_date"),
+            sync_enabled=m.get("sync_enabled", True),
+            sync_posts=m.get("sync_posts", True),
+            sync_follows=m.get("sync_follows", False),
+            sync_likes=m.get("sync_likes", False),
+            sync_announces=m.get("sync_announces", False),
+            last_sync_at=m.get("last_sync_at"),
+            sync_error_count=m.get("sync_error_count", 0),
+            remote_follower_count=m.get("remote_follower_count", 0),
+            remote_following_count=m.get("remote_following_count", 0),
+            remote_post_count=m.get("remote_post_count", 0),
+            created_at=m.get("created_at"),
+            updated_at=m.get("updated_at")
         )
-        for mapping in mappings
+        for m in mappings
     ]
 
 @router.get("/mappings/{mapping_id}", response_model=AccountMappingResponse)
 async def get_account_mapping(
     mapping_id: int,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得特定帳號映射（透過 GraphQL）"""
     gql = GraphQLClient()
@@ -278,10 +270,9 @@ async def update_account_mapping(
     mapping_id: int,
     request: AccountMappingUpdate,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """更新帳號映射設定"""
-    mapping_service = AccountMappingService(db)
+    mapping_service = AccountMappingService(None)
     
     gql = GraphQLClient()
     mapping = await gql.get_account_mapping_by_id(str(mapping_id))
@@ -296,45 +287,41 @@ async def update_account_mapping(
         raise HTTPException(status_code=500, detail="Failed to update mapping settings")
     
     # 重新取得更新後的映射
-    result = await db.execute(
-        select(AccountMapping).where(AccountMapping.id == mapping_id)
-    )
-    updated_mapping = result.scalar_one_or_none()
+    updated = await gql.get_account_mapping_by_id(str(mapping_id))
     
     return AccountMappingResponse(
-        id=updated_mapping.id,
-        mesh_member_id=updated_mapping.mesh_member_id,
-        remote_actor_id=updated_mapping.remote_actor_id,
-        remote_username=updated_mapping.remote_username,
-        remote_domain=updated_mapping.remote_domain,
-        remote_display_name=updated_mapping.remote_display_name,
-        remote_avatar_url=updated_mapping.remote_avatar_url,
-        remote_summary=updated_mapping.remote_summary,
-        is_verified=updated_mapping.is_verified,
-        verification_method=updated_mapping.verification_method,
-        verification_date=updated_mapping.verification_date,
-        sync_enabled=updated_mapping.sync_enabled,
-        sync_posts=updated_mapping.sync_posts,
-        sync_follows=updated_mapping.sync_follows,
-        sync_likes=updated_mapping.sync_likes,
-        sync_announces=updated_mapping.sync_announces,
-        last_sync_at=updated_mapping.last_sync_at,
-        sync_error_count=updated_mapping.sync_error_count,
-        remote_follower_count=updated_mapping.remote_follower_count,
-        remote_following_count=updated_mapping.remote_following_count,
-        remote_post_count=updated_mapping.remote_post_count,
-        created_at=updated_mapping.created_at,
-        updated_at=updated_mapping.updated_at
+        id=int(updated.get("id") or 0) if str(updated.get("id", "")).isdigit() else updated.get("id"),
+        mesh_member_id=updated.get("mesh_member", {}).get("id"),
+        remote_actor_id=updated.get("remote_actor_id"),
+        remote_username=updated.get("remote_username"),
+        remote_domain=updated.get("remote_domain"),
+        remote_display_name=updated.get("remote_display_name"),
+        remote_avatar_url=updated.get("remote_avatar_url"),
+        remote_summary=updated.get("remote_summary"),
+        is_verified=updated.get("is_verified", False),
+        verification_method=updated.get("verification_method"),
+        verification_date=updated.get("verification_date"),
+        sync_enabled=updated.get("sync_enabled", True),
+        sync_posts=updated.get("sync_posts", True),
+        sync_follows=updated.get("sync_follows", False),
+        sync_likes=updated.get("sync_likes", False),
+        sync_announces=updated.get("sync_announces", False),
+        last_sync_at=updated.get("last_sync_at"),
+        sync_error_count=updated.get("sync_error_count", 0),
+        remote_follower_count=updated.get("remote_follower_count", 0),
+        remote_following_count=updated.get("remote_following_count", 0),
+        remote_post_count=updated.get("remote_post_count", 0),
+        created_at=updated.get("created_at"),
+        updated_at=updated.get("updated_at")
     )
 
 @router.post("/mappings/{mapping_id}/verify")
 async def verify_account_mapping(
     mapping_id: int,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """驗證帳號映射"""
-    mapping_service = AccountMappingService(db)
+    mapping_service = AccountMappingService(None)
     
     gql = GraphQLClient()
     mapping = await gql.get_account_mapping_by_id(str(mapping_id))
@@ -352,7 +339,6 @@ async def verify_account_mapping(
 async def delete_account_mapping(
     mapping_id: int,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """刪除帳號映射"""
     mapping_service = AccountMappingService(db)
@@ -374,22 +360,18 @@ async def sync_account_content(
     mapping_id: int,
     request: AccountSyncRequest,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """同步帳號內容"""
     # 檢查映射是否屬於該 Member
-    result = await db.execute(
-        select(AccountMapping).where(
-            AccountMapping.id == mapping_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    mapping = result.scalar_one_or_none()
+    gql = GraphQLClient()
+    mapping = await gql.get_account_mapping_by_id(str(mapping_id))
+    if mapping and mapping.get("mesh_member", {}).get("id") != member_id:
+        mapping = None
     
     if not mapping:
         raise HTTPException(status_code=404, detail="Account mapping not found")
     
-    sync_service = AccountSyncService(db)
+    sync_service = AccountSyncService(None)
     
     try:
         sync_task = await sync_service.sync_account_content(
@@ -419,30 +401,18 @@ async def get_sync_tasks(
     member_id: str,
     limit: int = 20,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得同步任務列表"""
     # 檢查映射是否屬於該 Member
-    result = await db.execute(
-        select(AccountMapping).where(
-            AccountMapping.id == mapping_id,
-            AccountMapping.mesh_member_id == member_id
-        )
-    )
-    mapping = result.scalar_one_or_none()
+    gql = GraphQLClient()
+    mapping = await gql.get_account_mapping_by_id(str(mapping_id))
+    if mapping and mapping.get("mesh_member", {}).get("id") != member_id:
+        mapping = None
     
     if not mapping:
         raise HTTPException(status_code=404, detail="Account mapping not found")
     
-    result = await db.execute(
-        select(AccountSyncTask)
-        .where(AccountSyncTask.mapping_id == mapping_id)
-        .order_by(AccountSyncTask.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    
-    sync_tasks = result.scalars().all()
+    tasks = await gql.list_account_sync_tasks(str(mapping_id), limit, offset)
     
     return [
         AccountSyncResponse(
@@ -458,14 +428,13 @@ async def get_sync_tasks(
             started_at=task.started_at,
             completed_at=task.completed_at
         )
-        for task in sync_tasks
+        for task in tasks
     ]
 
 @router.get("/sync-tasks/{task_id}", response_model=AccountSyncResponse)
 async def get_sync_task(
     task_id: int,
     member_id: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """取得特定同步任務"""
     gql = GraphQLClient()

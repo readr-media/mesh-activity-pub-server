@@ -3,6 +3,7 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 httpx==0.25.2
+h2==4.1.0
 cryptography==42.0.8
 python-multipart==0.0.6
 python-jose[cryptography]==3.3.0
@@ -10,3 +11,7 @@ passlib[bcrypt]==1.7.4
 gql[requests]==3.4.1
 aiofiles==23.2.1
 python-dateutil==2.8.2
+SQLAlchemy==2.0.30
+asyncpg==0.29.0
+orjson==3.10.7
+aiosqlite==0.20.0

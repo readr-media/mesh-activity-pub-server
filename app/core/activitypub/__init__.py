@@ -1,15 +1,18 @@
 from fastapi import APIRouter
 from app.core.activitypub.actor import actor_router
 from app.core.activitypub.inbox import inbox_router
-from app.core.activitypub.outbox import outbox_router
 from app.core.activitypub.webfinger import webfinger_router
 from app.core.activitypub.nodeinfo import nodeinfo_router
 
-activitypub_router = APIRouter()
+# routers
+users_router = APIRouter()
+well_known_router = APIRouter()
 
-# 包含所有 ActivityPub 相關路由
-activitypub_router.include_router(actor_router, prefix="/users")
-activitypub_router.include_router(inbox_router, prefix="/inbox")
-activitypub_router.include_router(outbox_router, prefix="/outbox")
-activitypub_router.include_router(webfinger_router, prefix="/webfinger")
-activitypub_router.include_router(nodeinfo_router, prefix="/nodeinfo")
+# 將 users/inbox 置於站台根目錄
+users_router.include_router(actor_router, prefix="/users")
+users_router.include_router(inbox_router, prefix="/inbox")
+
+# 僅在 .well-known 底下提供標準發現端點
+# /.well-known 子路徑需指定前綴，避免空字串路由衝突
+well_known_router.include_router(webfinger_router)
+well_known_router.include_router(nodeinfo_router, prefix="/nodeinfo")

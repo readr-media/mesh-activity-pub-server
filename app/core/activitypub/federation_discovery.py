@@ -4,21 +4,18 @@
 
 import httpx
 import asyncio
-from typing import Dict, Any, List, Optional, Tuple, Union
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 import re
 from urllib.parse import urlparse
 
-from app.models.activitypub import FederationInstance, FederationConnection
 from app.core.graphql_client import GraphQLClient
 from app.core.config import settings
 
 class FederationDiscovery:
     """聯邦網站發現器"""
     
-    def __init__(self, db: Optional[AsyncSession]):
+    def __init__(self, db: Optional[Any]):
         self.db = db
         self.gql = GraphQLClient()
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -180,29 +177,26 @@ class FederationDiscovery:
             created = await self.gql.create_federation_instance(data)
             return created or {}
     
-    async def test_connection(self, instance: Union[FederationInstance, Dict[str, Any]]) -> bool:
+    async def test_connection(self, instance: Dict[str, Any]) -> bool:
         """測試與聯邦實例的連接"""
         try:
             # 測試 NodeInfo 端點
             response = await self.client.get(
-                f"https://{(instance.domain if isinstance(instance, FederationInstance) else instance['domain'])}/.well-known/nodeinfo/2.0",
+                f"https://{instance.get('domain')}/.well-known/nodeinfo/2.0",
                 headers={"Accept": "application/json"}
             )
             
             if response.status_code == 200:
                 # 更新連接狀態
-                if isinstance(instance, dict):
-                    await self.gql.update_federation_instance(instance.get("id"), {"last_successful_connection": datetime.utcnow().isoformat()})
+                await self.gql.update_federation_instance(instance.get("id"), {"last_successful_connection": datetime.utcnow().isoformat()})
                 return True
             else:
-                if isinstance(instance, dict):
-                    await self.gql.update_federation_instance(instance.get("id"), {"error_count": (instance.get('error_count', 0) + 1)})
+                await self.gql.update_federation_instance(instance.get("id"), {"error_count": (instance.get('error_count', 0) + 1)})
                 return False
                 
         except Exception as e:
-            print(f"Error testing connection to {instance.domain}: {e}")
-            if isinstance(instance, dict):
-                await self.gql.update_federation_instance(instance.get("id"), {"error_count": (instance.get('error_count', 0) + 1)})
+            print(f"Error testing connection to {instance.get('domain')}: {e}")
+            await self.gql.update_federation_instance(instance.get("id"), {"error_count": (instance.get('error_count', 0) + 1)})
             return False
     
     async def discover_from_activity(self, activity: Dict[str, Any]) -> List[str]:
@@ -318,11 +312,11 @@ class FederationManager:
         
         return new_instances
     
-    async def _get_public_timeline(self, instance: Union[FederationInstance, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _get_public_timeline(self, instance: Dict[str, Any]) -> List[Dict[str, Any]]:
         """取得實例的公開時間軸"""
         try:
             response = await self.discovery.client.get(
-                f"https://{(instance['domain'] if isinstance(instance, dict) else instance.domain)}/api/v1/timelines/public",
+                f"https://{instance.get('domain')}/api/v1/timelines/public",
                 headers={"Accept": "application/json"},
                 params={"limit": 20}
             )

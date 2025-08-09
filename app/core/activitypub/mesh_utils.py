@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from app.core.config import settings
-from app.models.activitypub import Actor, Story, Pick, Comment
+from typing import Any
 from app.core.activitypub.utils import generate_activity_id, create_activity_object
 
-def create_story_object(story: Story) -> Dict[str, Any]:
+def create_story_object(story: Any) -> Dict[str, Any]:
     """建立 Story 物件（對應 ActivityPub 的 Article）"""
     story_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/stories/{story.story_id}"
     
@@ -23,7 +23,7 @@ def create_story_object(story: Story) -> Dict[str, Any]:
         "cc": [f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/readr/followers"]
     }
 
-def create_pick_object(pick: Pick, actor: Actor, story: Story) -> Dict[str, Any]:
+def create_pick_object(pick: Any, actor: Any, story: Any) -> Dict[str, Any]:
     """建立 Pick 物件（對應 ActivityPub 的 Announce + Note 組合）"""
     pick_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/picks/{pick.pick_id}"
     actor_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/{actor.username}"
@@ -60,7 +60,7 @@ def create_pick_object(pick: Pick, actor: Actor, story: Story) -> Dict[str, Any]
     
     return pick_object
 
-def create_comment_object(comment: Comment, actor: Actor, pick: Optional[Pick] = None) -> Dict[str, Any]:
+def create_comment_object(comment: Any, actor: Any, pick: Optional[Any] = None) -> Dict[str, Any]:
     """建立 Comment 物件"""
     comment_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/comments/{comment.comment_id}"
     actor_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/{actor.username}"
@@ -89,7 +89,7 @@ def create_comment_object(comment: Comment, actor: Actor, pick: Optional[Pick] =
     
     return comment_object
 
-def create_pick_activity(pick: Pick, actor: Actor, story: Story) -> Dict[str, Any]:
+def create_pick_activity(pick: Any, actor: Any, story: Any) -> Dict[str, Any]:
     """建立 Pick 活動（Create 活動）"""
     activity_id = generate_activity_id("Create", actor.username)
     actor_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/{actor.username}"
@@ -107,7 +107,7 @@ def create_pick_activity(pick: Pick, actor: Actor, story: Story) -> Dict[str, An
         "cc": [f"{actor_id}/followers"]
     }
 
-def create_comment_activity(comment: Comment, actor: Actor, pick: Optional[Pick] = None) -> Dict[str, Any]:
+def create_comment_activity(comment: Any, actor: Any, pick: Optional[Any] = None) -> Dict[str, Any]:
     """建立 Comment 活動（Create 活動）"""
     activity_id = generate_activity_id("Create", actor.username)
     actor_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/{actor.username}"
@@ -125,7 +125,7 @@ def create_comment_activity(comment: Comment, actor: Actor, pick: Optional[Pick]
         "cc": [f"{actor_id}/followers"]
     }
 
-def create_like_pick_activity(pick: Pick, actor: Actor) -> Dict[str, Any]:
+def create_like_pick_activity(pick: Any, actor: Any) -> Dict[str, Any]:
     """建立對 Pick 的 Like 活動"""
     activity_id = generate_activity_id("Like", actor.username)
     actor_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/{actor.username}"
@@ -142,7 +142,7 @@ def create_like_pick_activity(pick: Pick, actor: Actor) -> Dict[str, Any]:
         "cc": [f"{actor_id}/followers"]
     }
 
-def create_announce_pick_activity(pick: Pick, actor: Actor) -> Dict[str, Any]:
+def create_announce_pick_activity(pick: Any, actor: Any) -> Dict[str, Any]:
     """建立對 Pick 的 Announce 活動（轉發）"""
     activity_id = generate_activity_id("Announce", actor.username)
     actor_id = f"{settings.ACTIVITYPUB_PROTOCOL}://{settings.ACTIVITYPUB_DOMAIN}/users/{actor.username}"
